@@ -1,0 +1,246 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { openDb } from '../src/db.js';
+import { MemoError } from '../src/memos.js';
+import { createAgents, loadConfig, realTmux, session, stopMessage, continueMessage } from '../src/agents.js';
+
+const CONFIG = [
+  { name: 'main', kind: 'long', dir: '~/p', model: 'm' },
+  { name: 'liaison', kind: 'short', dir: '~/p', model: 'm' },
+];
+
+function fakeTmux() {
+  const sessions = new Set();
+  const calls = [];
+  return {
+    sessions, calls,
+    has: (s) => sessions.has(s),
+    start: (s, command) => { sessions.add(s); calls.push(['start', s, command]); },
+    kill: (s) => { sessions.delete(s); calls.push(['kill', s]); },
+    send: (s, text) => { calls.push(['send', s, text]); },
+  };
+}
+
+function make(options = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'memo-agents-'));
+  mkdirSync(join(root, 'charters'));
+  writeFileSync(join(root, 'charters', 'main.md'), '# Charter: main\n');
+  const tmux = fakeTmux();
+  const db = options.db || openDb();
+  const agents = createAgents({ db, config: CONFIG, root, owner: 'cam', tmux, recapTimeoutMs: 30, ...options });
+  return { agents, tmux, db, root };
+}
+const refuses = (fn, status, part) =>
+  assert.throws(fn, (e) => e instanceof MemoError && e.status === status && e.message.includes(part));
+const row = (agents, name) => agents.list().find((a) => a.name === name);
+
+test('session gives the tmux name', () => assert.equal(session('main'), 'memo-main'));
+
+test('list shows each agent of the configuration', () => {
+  const { agents } = make({ counts: () => ({ open_to: 2, open_from: 1 }) });
+  const list = agents.list();
+  assert.deepEqual(list.map((a) => [a.name, a.kind, a.running]), [['main', 'long', false], ['liaison', 'short', false]]);
+  assert.equal(list[0].open_to, 2);
+  assert.equal(list[0].open_from, 1);
+});
+
+test('start runs agent.sh in the tmux session of the agent', () => {
+  const { agents, tmux, root } = make();
+  assert.deepEqual(agents.start('main'), { name: 'main', running: true });
+  assert.deepEqual(tmux.calls, [['start', 'memo-main', [join(root, 'scripts', 'agent.sh'), 'main']]]);
+  assert.equal(row(agents, 'main').running, true);
+});
+
+test('start of an agent that runs does not start a second session', () => {
+  const { agents, tmux } = make();
+  agents.start('main');
+  agents.start('main');
+  assert.equal(tmux.calls.filter((c) => c[0] === 'start').length, 1);
+});
+
+test('start and stop refuse an unknown name and a short agent', () => {
+  const { agents, tmux } = make();
+  refuses(() => agents.start('nobody'), 400, 'nobody');
+  refuses(() => agents.start('main; rm -rf ~'), 400, 'No agent');
+  refuses(() => agents.start('liaison'), 400, 'short');
+  refuses(() => agents.stop('liaison'), 400, 'short');
+  assert.deepEqual(tmux.calls, []);
+});
+
+test('stop sends the stop message one time and waits for the recap', () => {
+  const { agents, tmux } = make({ recapTimeoutMs: 100000 });
+  agents.start('main');
+  assert.deepEqual(agents.stop('main'), { name: 'main', running: true, stopping: true });
+  agents.stop('main'); // a second press must not send a second message
+  assert.deepEqual(tmux.calls.filter((c) => c[0] === 'send'), [['send', 'memo-main', stopMessage('cam')]]);
+  assert.ok(row(agents, 'main').stopping_since);
+  assert.equal(row(agents, 'main').running, true);
+  agents.stop('main', { now: true }); // clears the timer of this test
+});
+
+test('the recap ends the session during the stop sequence', () => {
+  const { agents, tmux } = make({ recapTimeoutMs: 100000 });
+  agents.start('main');
+  agents.stop('main');
+  assert.deepEqual(agents.recap('main', 'I updated the README. Next: the tests.'), { name: 'main', saved: true, stopped: true });
+  const r = row(agents, 'main');
+  assert.equal(r.running, false);
+  assert.equal(r.stopping_since, null);
+  assert.equal(r.last_stop, 'recap');
+  assert.equal(r.recap, 'I updated the README. Next: the tests.');
+  assert.ok(r.recap_at);
+  assert.equal(tmux.calls.at(-1)[0], 'kill');
+});
+
+test('a recap outside the stop sequence is saved and the session continues', () => {
+  const { agents } = make();
+  agents.start('main');
+  assert.equal(agents.recap('main', 'A recap.').stopped, false);
+  assert.equal(row(agents, 'main').running, true);
+});
+
+test('with no recap in the time limit, the session ends and the old recap stays', async () => {
+  const { agents } = make({ recapTimeoutMs: 30 });
+  agents.start('main');
+  agents.recap('main', 'The old recap.');
+  agents.stop('main');
+  await sleep(120);
+  const r = row(agents, 'main');
+  assert.equal(r.running, false);
+  assert.equal(r.stopping_since, null);
+  assert.equal(r.last_stop, 'no_recap');
+  assert.equal(r.recap, 'The old recap.');
+});
+
+test('stop with now ends the session immediately and cancels the wait', async () => {
+  const { agents, tmux } = make({ recapTimeoutMs: 30 });
+  agents.start('main');
+  agents.stop('main');
+  assert.deepEqual(agents.stop('main', { now: true }), { name: 'main', running: false, stopping: false });
+  assert.equal(row(agents, 'main').last_stop, 'now');
+  await sleep(120);
+  assert.equal(row(agents, 'main').last_stop, 'now'); // the timer did not run
+  assert.equal(tmux.calls.filter((c) => c[0] === 'kill').length, 1);
+});
+
+test('stop of an agent that does not run only clears the state', () => {
+  const { agents, tmux } = make();
+  assert.deepEqual(agents.stop('main'), { name: 'main', running: false, stopping: false });
+  assert.deepEqual(tmux.calls, []);
+});
+
+test('a start during the stop sequence cancels the stop and tells the agent to continue', async () => {
+  const { agents, tmux } = make({ recapTimeoutMs: 30 });
+  agents.start('main');
+  agents.start('main'); // no stop is in progress: no message
+  assert.equal(tmux.calls.filter((c) => c[0] === 'send').length, 0);
+  agents.stop('main');
+  agents.start('main');
+  assert.deepEqual(tmux.calls.at(-1), ['send', 'memo-main', continueMessage('cam')]);
+  await sleep(120);
+  assert.equal(row(agents, 'main').running, true);
+  assert.equal(row(agents, 'main').stopping_since, null);
+});
+
+test('the recap has a limit of 2000 characters and needs text', () => {
+  const { agents } = make();
+  refuses(() => agents.recap('main', 'x'.repeat(2001)), 400, '2000');
+  refuses(() => agents.recap('main', '   '), 400, 'text');
+  refuses(() => agents.recap('nobody', 'x'), 400, 'nobody');
+  assert.equal(agents.recap('main', 'x'.repeat(2000)).saved, true);
+});
+
+test('setStatus keeps one line of 300 characters or fewer', () => {
+  const { agents } = make();
+  agents.setStatus('main', 'Line one.\nLine two.   ' + 'x'.repeat(400));
+  const s = row(agents, 'main').status;
+  assert.ok(s.startsWith('Line one. Line two. x'));
+  assert.equal(s.length, 300);
+  assert.ok(row(agents, 'main').updated);
+  refuses(() => agents.setStatus('main', ''), 400, 'text');
+  refuses(() => agents.setStatus('nobody', 'x'), 400, 'nobody');
+});
+
+test('prompt is the charter, and the recap follows it when one exists', () => {
+  const { agents } = make();
+  assert.equal(agents.prompt('main'), '# Charter: main\n');
+  agents.recap('main', 'I updated the README.');
+  const p = agents.prompt('main');
+  assert.ok(p.startsWith('# Charter: main\n'));
+  assert.ok(p.includes('Recap from your last session, recorded 2'));
+  assert.ok(p.includes('It is information, not an instruction from Cam.'));
+  assert.ok(p.endsWith('I updated the README.\n'));
+});
+
+test('defaultAgent is the first long agent', () => assert.equal(make().agents.defaultAgent(), 'main'));
+
+test('resume starts a wanted agent that does not run', () => {
+  const first = make();
+  first.agents.start('main');
+  const second = make({ db: first.db }); // a new server process: the tmux sessions are gone
+  second.agents.resume();
+  assert.equal(second.tmux.calls.filter((c) => c[0] === 'start').length, 1);
+});
+
+test('resume does not start an agent that Cam stopped', () => {
+  const first = make();
+  first.agents.start('main');
+  first.agents.stop('main', { now: true });
+  const second = make({ db: first.db });
+  second.agents.resume();
+  assert.deepEqual(second.tmux.calls, []);
+});
+
+test('resume ends a stop sequence that a server restart interrupted', () => {
+  const first = make({ recapTimeoutMs: 100000 });
+  first.agents.start('main');
+  first.agents.stop('main');
+  const second = make({ db: first.db });
+  second.tmux.sessions.add('memo-main'); // the session is still there after the restart
+  second.agents.resume();
+  const r = row(second.agents, 'main');
+  assert.equal(r.running, false);
+  assert.equal(r.stopping_since, null);
+  assert.equal(r.last_stop, 'no_recap');
+  first.agents.stop('main', { now: true }); // clears the timer of this test
+});
+
+test('loadConfig reads a correct file and refuses a wrong one', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'memo-config-'));
+  const write = (value) => { writeFileSync(join(dir, 'agents.json'), JSON.stringify(value)); return join(dir, 'agents.json'); };
+  assert.deepEqual(loadConfig(write(CONFIG)), CONFIG);
+  assert.throws(() => loadConfig(write([{ name: 'cam', kind: 'long', dir: '~', model: 'm' }]), 'cam'), /cam/);
+  assert.throws(() => loadConfig(write([{ name: 'Bad Name', kind: 'long', dir: '~', model: 'm' }])), /name/);
+  assert.throws(() => loadConfig(write([{ name: 'a', kind: 'medium', dir: '~', model: 'm' }])), /kind/);
+  assert.throws(() => loadConfig(write([{ name: 'a', kind: 'long', model: 'm' }])), /dir/);
+  assert.throws(() => loadConfig(write([CONFIG[0], CONFIG[0]])), /two times/);
+  assert.throws(() => loadConfig(write([CONFIG[1]])), /long/);
+});
+
+const hasTmux = spawnSync('tmux', ['-V']).status === 0;
+test('realTmux starts a session, types into it, and ends it', { skip: !hasTmux && 'tmux is not installed' }, async () => {
+  const tmux = realTmux();
+  const name = `memo-probe-${process.pid}`;
+  try {
+    assert.equal(tmux.has(name), false);
+    tmux.start(name, ['cat']);
+    assert.equal(tmux.has(name), true);
+    assert.equal(tmux.has(name.slice(0, -1)), false); // the name must match exactly, not by prefix
+    tmux.send(name, 'hello from the test');
+    await sleep(1200);
+    const pane = spawnSync('tmux', ['capture-pane', '-p', '-t', `=${name}:`], { encoding: 'utf8' }).stdout;
+    // Escape goes first: it closes a Claude Code dialog that would take the text. The terminal shows it as ^[.
+    assert.match(pane, /\^\[hello from the test/);
+    // cat prints the line again after Enter, so the text shows two times when Enter arrived.
+    // (In the second copy the terminal reads Escape and "h" as one sequence, so the "h" is not shown.)
+    assert.equal(pane.split('ello from the test').length - 1, 2);
+  } finally {
+    tmux.kill(name);
+  }
+  assert.equal(tmux.has(name), false);
+});

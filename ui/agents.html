@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memo Agents</title>
+<link rel="stylesheet" href="/ui/common.css">
+</head>
+<body>
+<header><h1>Agents</h1><a href="/inbox">Inbox</a></header>
+<form id="token-form" hidden>
+  <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
+  <button>Save</button>
+</form>
+<p id="note" role="status" hidden></p>
+<main id="list"></main>
+<footer>To look at a session, run this in a terminal: tmux attach -t memo-main. To leave it, press Control-b, then d.</footer>
+<script type="module">
+import { api, el, button, tokenForm, note, age, loadImages } from '/ui/common.js';
+import { render as markdown } from '/ui/markdown.js';
+
+const list = document.getElementById('list');
+
+function state(agent) {
+  if (agent.kind === 'short') return `Last run: ${age(agent.updated)}`;
+  if (agent.stopping_since) return 'Stopping, waits for the recap';
+  if (agent.running) return 'Running';
+  return agent.last_stop === 'no_recap' ? 'Stopped with no recap' : 'Stopped';
+}
+
+function control(agent) {
+  if (agent.stopping_since) return button('Stop now', () => run('/api/agent/stop', { name: agent.name, now: true }), 'End the session immediately, with no recap');
+  if (agent.running) return button('Stop', () => run('/api/agent/stop', { name: agent.name }), 'Ask for a recap, then end the session');
+  return button('Start', () => run('/api/agent/start', { name: agent.name }));
+}
+
+function view(agent) {
+  const parts = [el('div', { className: 'meta' }, el('span', { className: 'sender' }, agent.name), ` ${state(agent)}`)];
+  if (agent.kind === 'long') {
+    parts.push(el('p', { className: 'text' }, agent.status ? `${agent.status} (${age(agent.updated)})` : 'No status line.'));
+  }
+  parts.push(el('p', { className: 'dim' }, `Open memos to ${agent.name}: ${agent.open_to}. Open memos from ${agent.name}: ${agent.open_from}.`));
+  if (agent.kind === 'long' && agent.recap && !agent.running) {
+    parts.push(el('details', { open: true }, el('summary', {}, `Recap, ${age(agent.recap_at)}`), el('div', { className: 'md' }, ...markdown(agent.recap, el))));
+  }
+  if (agent.kind === 'long') parts.push(el('div', { className: 'row' }, control(agent)));
+  return el('article', { className: 'memo' }, ...parts);
+}
+
+async function load() {
+  try {
+    list.replaceChildren(...(await api('/api/agents')).map(view));
+    loadImages(list);
+    note('');
+  } catch (error) { note(error.message); }
+}
+async function run(path, body) {
+  try { await api(path, body); } catch (error) { note(error.message); return; }
+  await load();
+}
+
+tokenForm(load);
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memo Inbox</title>
+<link rel="stylesheet" href="/ui/common.css">
+</head>
+<body>
+<header><h1>Inbox</h1><span id="count"></span><a href="/agents">Agents</a></header>
+<form id="token-form" hidden>
+  <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
+  <button>Save</button>
+</form>
+<p id="note" role="status" hidden></p>
+<form id="capture">
+  <select name="to" aria-label="Agent" hidden></select>
+  <input name="text" placeholder="Capture a task for the agent" autocomplete="off" required aria-label="Task">
+  <button>Send</button>
+</form>
+<main id="queue"></main>
+<p id="empty" class="dim" hidden>No memos need you now.</p>
+<footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply.</footer>
+<script type="module">
+import { api, el, button, tokenForm, note, age, loadImages, themeVars } from '/ui/common.js';
+import { render as markdown } from '/ui/markdown.js';
+
+const queue = document.getElementById('queue');
+const capture = document.getElementById('capture');
+const drafts = new Map(); // memo id -> reply text that is not sent
+let memos = [];
+let selected = null;
+
+function select(id) {
+  selected = id;
+  for (const node of queue.children) node.classList.toggle('selected', Number(node.dataset.id) === id);
+}
+
+function view(memo) {
+  const area = el('textarea', { rows: 2, placeholder: 'Reply', value: drafts.get(memo.id) || '' });
+  area.setAttribute('aria-label', `Reply to memo ${memo.id}`);
+  area.addEventListener('input', () => drafts.set(memo.id, area.value));
+  area.addEventListener('focus', () => select(memo.id));
+  area.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); reply(memo, area.value); }
+  });
+  const facts = ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}`;
+  const node = el('article', { className: memo.id === selected ? 'memo selected' : 'memo' },
+    el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), facts),
+    // A memo that quotes Discord text gets no frame.
+    el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars() })),
+    area,
+    el('div', { className: 'row' },
+      button('Reply', () => reply(memo, area.value)),
+      button('Close', () => close(memo), 'Close the memo. The text in the reply field goes with it.'),
+      el('span', { className: 'spacer' }),
+      button('Less', () => adjust(memo.id, -1), 'Decrease the impact by 1'),
+      button('More', () => adjust(memo.id, 1), 'Increase the impact by 1')));
+  node.dataset.id = memo.id;
+  node.addEventListener('click', () => select(memo.id));
+  return node;
+}
+
+function render() {
+  if (!memos.some((c) => c.id === selected)) selected = memos[0]?.id ?? null;
+  queue.replaceChildren(...memos.map(view));
+  loadImages(queue);
+  document.getElementById('count').textContent = memos.length === 1 ? '1 memo' : `${memos.length} memos`;
+  document.getElementById('empty').hidden = memos.length > 0;
+}
+
+async function load() {
+  try {
+    const next = await api('/api/list?to=__OWNER__');
+    note('');
+    // A new render makes each frame again and runs its script again, so render only when the list changed.
+    const changed = JSON.stringify(next) !== JSON.stringify(memos) || !queue.children.length;
+    memos = next;
+    if (changed) render();
+  } catch (error) { note(error.message); }
+}
+
+async function run(action) {
+  try { await action(); await load(); } catch (error) { note(error.message); }
+}
+const reply = (memo, text) => {
+  if (!text.trim()) return note('Write a reply first.');
+  return run(async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); });
+};
+const close = (memo) => run(async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); });
+const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta }));
+
+async function loadAgents() {
+  try {
+    const long = (await api('/api/agents')).filter((a) => a.kind === 'long');
+    capture.elements.to.replaceChildren(...long.map((a) => el('option', { value: a.name }, a.name)));
+    capture.elements.to.hidden = long.length < 2;
+  } catch (error) { note(error.message); }
+}
+capture.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const to = capture.elements.to.value;
+  if (!to) return note('The list of agents did not load. Load the page again.');
+  run(async () => {
+    await api('/api/send', { from: '__OWNER__', to, text: capture.elements.text.value });
+    capture.elements.text.value = '';
+  });
+});
+
+const typing = () => ['TEXTAREA', 'INPUT', 'SELECT'].includes(document.activeElement?.tagName);
+document.addEventListener('keydown', (event) => {
+  if (typing() || event.metaKey || event.ctrlKey || event.altKey || !memos.length) return;
+  const index = memos.findIndex((c) => c.id === selected);
+  if (event.key === 'j') select(memos[Math.min(memos.length - 1, index + 1)].id);
+  else if (event.key === 'k') select(memos[Math.max(0, index - 1)].id);
+  else if (event.key === '+' || event.key === '=') adjust(selected, 1);
+  else if (event.key === '-') adjust(selected, -1);
+});
+
+tokenForm(() => { load(); loadAgents(); });
+load();
+loadAgents();
+// A new list replaces the reply fields, so the page does not load while the owner types.
+setInterval(() => { if (!typing()) load(); }, 15000);
+</script>
+</body>
+</html>

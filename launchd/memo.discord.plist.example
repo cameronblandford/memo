@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Replace each __ROOT__ with the full path of this repository, and check the path of python3. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>memo.discord</string>
+  <key>ProgramArguments</key>
+  <array><string>/usr/bin/python3</string><string>__ROOT__/scripts/discord-watch.py</string></array>
+  <key>StartInterval</key><integer>30</integer>
+  <key>RunAtLoad</key><true/>
+  <key>AbandonProcessGroup</key><true/>
+  <key>StandardOutPath</key><string>__ROOT__/data/discord-watch.log</string>
+  <key>StandardErrorPath</key><string>__ROOT__/data/discord-watch.log</string>
+</dict>
+</plist>

@@ -1,0 +1,5 @@
+#!/bin/sh
+# The Memo command-line client. See README.md for the commands.
+root="$(cd "$(dirname "$0")/.." && pwd)"
+. "$root/scripts/_node.sh"
+exec node "$root/scripts/memo.mjs" "$@"
