@@ -66,6 +66,8 @@ The Inbox shows the open memos to the owner. The order is:
 
 The weights and the 2-day limit are in `src/rank.js`. `impact.md` tells the agents how to select the two values.
 
+A memo that the owner did not see has the tag "new". A memo whose text changed after the owner saw it has the tag "updated". The tag goes away when the memo was on the screen for 2 seconds, and the server records this, so it is the same on each device.
+
 The buttons "More" and "Less" change the impact of a memo by 1. The server records each change. When an agent sends its next memo, `memo` shows the agent the last 5 changes.
 
 The field at the top sends a memo from the owner to the agent.

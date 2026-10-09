@@ -210,3 +210,30 @@ test('edit refuses a closed memo, an empty text, and an unknown memo', () => {
   s.reply(1, 'Yes.');
   refuses(() => s.edit(1, 'x'), 409, 'replied');
 });
+
+test('a memo to the owner is new, then seen, and an edit after that makes it updated', () => {
+  const s = makeStore();
+  s.send({ from: 'main', to: 'cam', text: 'Approve the deploy?', impact: 3, effort: 'micro' });
+  s.send({ from: 'main', to: 'cam', text: 'A second question.', impact: 2, effort: 'micro' });
+  assert.equal(s.get(1).seen, 0);
+  s.edit(1, 'Approve the deploy today?');
+  assert.equal(s.get(1).seen, 0, 'an edit of a memo that the owner did not see keeps it new');
+  assert.deepEqual(s.seen([1]), { seen: 1 });
+  assert.equal(s.get(1).seen, 1);
+  assert.equal(s.get(2).seen, 0, 'only the memo in the list changes');
+  assert.deepEqual(s.seen([1]), { seen: 0 }, 'a second call changes nothing');
+  s.edit(1, 'Approve the deploy tomorrow?');
+  assert.equal(s.get(1).seen, 2);
+  s.seen([1, 2]);
+  assert.deepEqual([s.get(1).seen, s.get(2).seen], [1, 1]);
+});
+
+test('seen changes only memos to the owner and refuses a bad list', () => {
+  const s = makeStore();
+  s.send({ from: 'cam', to: 'main', text: 'Update the README.' });
+  assert.deepEqual(s.seen([1, 99]), { seen: 0 });
+  assert.equal(s.get(1).seen, 0);
+  refuses(() => s.seen([]), 400, 'ids');
+  refuses(() => s.seen('1'), 400, 'ids');
+  refuses(() => s.seen([1.5]), 400, 'ids');
+});

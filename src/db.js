@@ -21,6 +21,7 @@ export function openDb(path = ':memory:') {
       due TEXT,                             -- YYYY-MM-DD
       trusted INTEGER NOT NULL DEFAULT 0,   -- 1: the watcher checked that the owner wrote the message; 2: also forwarded
       acked INTEGER NOT NULL DEFAULT 0,     -- 1: the sender read the result
+      seen INTEGER NOT NULL DEFAULT 0,      -- for a memo to the owner. 0: new; 1: the owner saw the text; 2: the text changed after that
       created TEXT NOT NULL,
       closed TEXT
     );
@@ -42,5 +43,9 @@ export function openDb(path = ':memory:') {
       last_stop TEXT                        -- 'recap' | 'no_recap' | 'now'
     );
   `);
+  // A database from before the "new" tag gets the column. The memos that are in it count as seen.
+  if (!db.prepare('PRAGMA table_info(memos)').all().some((c) => c.name === 'seen')) {
+    db.exec('ALTER TABLE memos ADD COLUMN seen INTEGER NOT NULL DEFAULT 1');
+  }
   return db;
 }

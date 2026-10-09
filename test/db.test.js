@@ -28,3 +28,19 @@ test('a database with the old names keeps its rows under the new names', () => {
   openDb(path); // a second start changes nothing
   assert.equal(store.list('cam').length, 2);
 });
+
+test('a database from before the new tag gets the column, and its memos count as seen', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'memo-db-'));
+  const path = join(dir, 'old.db');
+  const old = new DatabaseSync(path);
+  old.exec(`CREATE TABLE memos (id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL, recipient TEXT NOT NULL, text TEXT NOT NULL, reply TEXT,
+    state TEXT NOT NULL DEFAULT 'open', impact INTEGER, effort TEXT, due TEXT, trusted INTEGER NOT NULL DEFAULT 0, acked INTEGER NOT NULL DEFAULT 0,
+    created TEXT NOT NULL, closed TEXT);
+    INSERT INTO memos (sender, recipient, text, impact, effort, created) VALUES ('main', 'cam', 'An old question.', 3, 'micro', '2026-10-01T00:00:00.000Z');`);
+  old.close();
+  const store = createStore(openDb(path), { owner: 'cam', names: ['cam', 'discord', 'main'] });
+  assert.equal(store.get(1).seen, 1);
+  store.send({ from: 'main', to: 'cam', text: 'A new question.', impact: 3, effort: 'micro' });
+  assert.equal(store.get(2).seen, 0);
+  createStore(openDb(path), { owner: 'cam', names: ['cam', 'discord', 'main'] });
+});

@@ -45,8 +45,10 @@ function view(memo) {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); reply(memo, area.value); }
   });
   const facts = ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}`;
+  // seen 0: the owner did not see the memo. seen 2: its text changed after the owner saw it.
+  const tag = memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new');
   const node = el('article', { className: memo.id === selected ? 'memo selected' : 'memo' },
-    el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), facts),
+    el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), facts, tag),
     // A memo that quotes Discord text gets no frame.
     el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars() })),
     area,
@@ -58,11 +60,46 @@ function view(memo) {
       button('More', () => adjust(memo.id, 1), 'Increase the impact by 1')));
   node.dataset.id = memo.id;
   node.addEventListener('click', () => select(memo.id));
+  if (tag) watch.observe(node);
   return node;
+}
+
+// A memo counts as seen when half of it (or half of the screen, for a long memo) was on the screen for 2 seconds
+// while the page was in front. Then its tag fades and the server records it.
+const SEEN_AFTER_MS = 2000;
+const waiting = new Map(); // memo id -> timer
+const watch = new IntersectionObserver((entries) => {
+  for (const entry of entries) {
+    const id = Number(entry.target.dataset.id);
+    const enough = entry.isIntersecting && (entry.intersectionRatio >= 0.5 || entry.intersectionRect.height >= innerHeight / 2);
+    if (!enough) { clearTimeout(waiting.get(id)); waiting.delete(id); continue; }
+    if (waiting.has(id)) continue;
+    waiting.set(id, setTimeout(() => { waiting.delete(id); if (document.visibilityState === 'visible') markSeen(id); }, SEEN_AFTER_MS));
+  }
+}, { threshold: [0, 0.25, 0.5, 0.75, 1] });
+document.addEventListener('visibilitychange', () => {
+  // A memo that was on the screen while the page was hidden gets a new check.
+  if (document.visibilityState !== 'visible') return;
+  for (const node of queue.querySelectorAll('.memo')) if (node.querySelector('.tag')) { watch.unobserve(node); watch.observe(node); }
+});
+async function markSeen(id) {
+  try {
+    await api('/api/seen', { ids: [id] });
+    const memo = memos.find((m) => m.id === id);
+    if (memo) memo.seen = 1;
+    const node = [...queue.children].find((n) => Number(n.dataset.id) === id);
+    if (!node) return;
+    watch.unobserve(node);
+    const tag = node.querySelector('.tag');
+    if (tag) { tag.classList.add('gone'); setTimeout(() => tag.remove(), 1500); }
+  } catch { /* the next look tries again */ }
 }
 
 function render() {
   if (!memos.some((c) => c.id === selected)) selected = memos[0]?.id ?? null;
+  watch.disconnect();
+  for (const timer of waiting.values()) clearTimeout(timer);
+  waiting.clear();
   queue.replaceChildren(...memos.map(view));
   loadImages(queue);
   document.getElementById('count').textContent = memos.length === 1 ? '1 memo' : `${memos.length} memos`;

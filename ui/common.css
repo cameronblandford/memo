@@ -22,6 +22,8 @@ button:hover { border-color: var(--accent); }
 .memo.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .meta { color: var(--dim); font-size: .85rem; }
 .sender { color: var(--accent); font-weight: 600; }
+.tag { float: right; margin-left: .5rem; padding: 0 .45rem; border-radius: 1rem; background: var(--accent); color: var(--panel); font-size: .75rem; font-weight: 600; transition: opacity 1.5s; }
+.tag.gone { opacity: 0; }
 .text { margin: .4rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .md { margin: .4rem 0; overflow-wrap: anywhere; }
 .md p, .md blockquote { margin: .4rem 0; white-space: pre-wrap; }

@@ -77,7 +77,8 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     }
     const d = checkDue(due);
     const r = db.prepare(
-      'INSERT INTO memos (sender, recipient, text, impact, effort, due, trusted, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      // seen is 0 here and not from the column default: an older database has the default 1 for its old memos.
+      'INSERT INTO memos (sender, recipient, text, impact, effort, due, trusted, created, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
     ).run(from, to, body, impact, effort, d, trusted ? 1 : 0, ts());
     return { memo: get(Number(r.lastInsertRowid)), corrections: to === owner ? corrections(from) : [] };
   }
@@ -99,8 +100,20 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
   // A new text for an open memo, for example to make it easier to read. The impact, the effort, and the place in the queue stay.
   function edit(id, text) {
     const c = getOpen(id);
-    db.prepare('UPDATE memos SET text = ? WHERE id = ?').run(checkText('text', text), c.id);
+    // A text that the owner saw and that changes shows as "updated" in the Inbox.
+    db.prepare('UPDATE memos SET text = ?, seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?').run(checkText('text', text), c.id);
     return get(c.id);
+  }
+
+  // The Inbox calls this when a memo was on the screen of the owner. The "new" or "updated" tag of the memo goes away.
+  function seen(ids) {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 500 || !ids.every((n) => Number.isInteger(n))) {
+      throw new MemoError(400, 'ids must be a list of 1 to 500 memo ids.');
+    }
+    const mark = db.prepare('UPDATE memos SET seen = 1 WHERE id = ? AND recipient = ? AND seen != 1');
+    let changed = 0;
+    for (const id of ids) changed += Number(mark.run(id, owner).changes);
+    return { seen: changed };
   }
 
   function adjust(id, delta) {
@@ -159,5 +172,5 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     };
   }
 
-  return { get, send, reply, close, edit, adjust, ack, forward, list, news, corrections, counts };
+  return { get, send, reply, close, edit, seen, adjust, ack, forward, list, news, corrections, counts };
 }
