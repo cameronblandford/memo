@@ -38,7 +38,7 @@ function fail(message) {
   process.exit(1);
 }
 
-// soft: a server that does not answer gives null and not an exit. memo wait uses it.
+// soft: a server that does not answer, or an answer that is not from Memo, gives null and not an exit. memo wait uses it.
 async function call(path, body, { soft = false } = {}) {
   let r;
   try {
@@ -55,7 +55,9 @@ async function call(path, body, { soft = false } = {}) {
   let data;
   try { data = JSON.parse(raw); } catch { data = raw; }
   if (!r.ok) {
-    if (soft && r.status >= 500) return null;
+    // A failure with no JSON body is not from Memo: for example a different program that has the port
+    // while the server starts again. memo wait tries again.
+    if (soft && (r.status >= 500 || data === null || typeof data !== 'object')) return null;
     fail(data?.error || raw || `The request failed with status ${r.status}.`);
   }
   return data;

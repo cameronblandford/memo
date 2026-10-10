@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
 import { serve } from '@hono/node-server';
 import { makeApp, TOKEN, ROOT } from './helpers.js';
 
@@ -140,4 +141,18 @@ test('wait continues when the server does not answer, and other commands fail', 
   const listed = await run('node', [CLI, 'list', '--to', 'main'], { env }).catch((e) => e);
   assert.equal(listed.code, 1);
   assert.match(listed.stderr, /does not answer/);
+});
+
+test('wait does not stop when a different program answers on the port', async () => {
+  // While the Memo server starts again, a different server can get the request and answer with a page.
+  const other = await new Promise((done) => {
+    const s = createServer((req, res) => { res.statusCode = 404; res.setHeader('Content-Type', 'text/html'); res.end('<h1>Error response</h1>'); });
+    s.listen(0, '127.0.0.1', () => done(s));
+  });
+  try {
+    const env = { ...process.env, MEMO_URL: `http://127.0.0.1:${other.address().port}`, MEMO_TOKEN: TOKEN, MEMO_WAIT_INTERVAL_MS: '20' };
+    const r = await run('node', [CLI, 'wait', '--as', 'main', '0.002'], { env }).catch((e) => e);
+    assert.equal(r.code, 2, 'the wait ends at its time limit, not with an error');
+    assert.match(r.stdout, /No news for main/);
+  } finally { other.close(); }
 });
