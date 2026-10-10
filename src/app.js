@@ -14,7 +14,7 @@ const LIAISON = 'liaison';
 const digest = (s) => createHash('sha256').update(s).digest();
 const same = (a, b) => timingSafeEqual(digest(a), digest(b));
 
-export function createApp({ store, agents, images, root, token, liaisonToken, owner = 'owner' }) {
+export function createApp({ store, agents, images, root, token, liaisonToken, owner = 'owner', tailscale }) {
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -38,10 +38,22 @@ export function createApp({ store, agents, images, root, token, liaisonToken, ow
     return c.body(readFileSync(join(root, 'ui', file), 'utf8'), 200, { 'Content-Type': UI[file] });
   });
 
+  // Tailscale Serve sets Tailscale-User-Login and removes a value that the client sent. The owner then needs no token.
+  // The Host must be the Tailscale name, so a page that points its own name at this server (DNS rebinding) gets nothing.
+  // The Origin and Sec-Fetch-Site checks stop a page of a different site that sends a request from the browser of the owner.
+  const fromOwnerTailnet = (c) => {
+    if (!tailscale) return false;
+    const header = (name) => c.req.header(name) || '';
+    if (!same(header('Tailscale-User-Login'), tailscale.login) || header('Host') !== tailscale.host) return false;
+    if (header('Origin') && header('Origin') !== `https://${tailscale.host}`) return false;
+    return !header('Sec-Fetch-Site') || header('Sec-Fetch-Site') === 'same-origin';
+  };
+
   app.use('/api/*', async (c, next) => {
-    const given = (c.req.header('Authorization') || '').replace(/^Bearer /, '');
+    const given = (c.req.header('Authorization') || '').replace(/^Bearer\s*/, '');
     if (given && same(given, token)) c.set('role', 'full');
     else if (given && liaisonToken && same(given, liaisonToken)) c.set('role', LIAISON);
+    else if (!given && fromOwnerTailnet(c)) c.set('role', 'full');
     else throw new MemoError(401, 'The token is missing or wrong.');
     await next();
   });

@@ -37,9 +37,21 @@ const store = createStore(db, {
 });
 const agents = createAgents({ db, config, root, owner, tmux: realTmux(), counts: store.counts });
 const images = createImages(join(dirname(dbPath), 'images'));
-const app = createApp({ store, agents, images, root, token, liaisonToken, owner });
-
 const hostname = process.env.HOST || '127.0.0.1';
+// Optional: the owner needs no token through Tailscale Serve. See README.md.
+const { MEMO_TAILSCALE_LOGIN: login, MEMO_TAILSCALE_HOST: tailscaleHost } = process.env;
+if (!login !== !tailscaleHost) {
+  console.error('Set MEMO_TAILSCALE_LOGIN and MEMO_TAILSCALE_HOST together, or set none of the two.');
+  process.exit(1);
+}
+// A request from a different computer could contain the Tailscale header, so only Tailscale Serve on this computer can be the source.
+if (login && !['127.0.0.1', '::1', 'localhost'].includes(hostname)) {
+  console.error('MEMO_TAILSCALE_LOGIN needs HOST=127.0.0.1. With a different HOST, a computer on the network can pretend to be Tailscale.');
+  process.exit(1);
+}
+const tailscale = login ? { login, host: tailscaleHost } : undefined;
+const app = createApp({ store, agents, images, root, token, liaisonToken, owner, tailscale });
+
 const port = Number(process.env.PORT || 3280);
 serve({ fetch: app.fetch, hostname, port }, () => {
   console.log(`Memo listens on http://${hostname}:${port}`);

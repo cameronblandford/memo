@@ -50,6 +50,17 @@ To copy the token for a page (macOS), run `sed -n 's/^MEMO_TOKEN=//p' .env | tr 
 
 Open `http://127.0.0.1:3280/inbox`. Paste the token one time. The browser keeps it.
 
+### The pages on a phone, with no token
+
+A browser keeps the token for one address only. With [Tailscale Serve](https://tailscale.com/kb/1312/serve), the pages can work on your other devices with no token:
+
+1. Run `tailscale serve --bg --https=8443 http://127.0.0.1:3280`.
+2. In `.env`, set `MEMO_TAILSCALE_LOGIN` to the login name of your Tailscale account.
+3. In `.env`, set `MEMO_TAILSCALE_HOST` to the host name and port from step 1, for example `your-mac.your-tailnet.ts.net:8443`.
+4. Start the server again.
+
+Tailscale Serve tells the server which tailnet user sent a request. The server gives full access with no token only when that user is `MEMO_TAILSCALE_LOGIN`, the request came to `MEMO_TAILSCALE_HOST`, and the request is not from a page of a different site. `HOST` must stay `127.0.0.1`. A program that runs on the computer of the server can make such a request without Tailscale, so this setting gives no protection against a local program (a local program with your user account can read `.env` also).
+
 The Inbox shows the open memos to the owner. The order is:
 
 1. Memos with a due date in the next 2 days, or an earlier due date. The earliest date goes first.

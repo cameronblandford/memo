@@ -15,14 +15,14 @@ const CONFIG = [
   { name: 'liaison', kind: 'short', dir: '~/p', model: 'm' },
 ];
 
-export function makeApp() {
+export function makeApp({ tailscale } = {}) {
   const db = openDb();
   const store = createStore(db, { owner: 'cam', names: ['cam', 'discord', 'main', 'liaison'], forwardTo: ['main'] });
   const sessions = new Set();
   const tmux = { has: (s) => sessions.has(s), start: (s) => sessions.add(s), kill: (s) => sessions.delete(s), send: () => {} };
   const agents = createAgents({ db, config: CONFIG, root: ROOT, owner: 'cam', tmux, counts: store.counts });
   const images = createImages(mkdtempSync(join(tmpdir(), 'memo-images-')));
-  const app = createApp({ store, agents, images, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, owner: 'cam' });
+  const app = createApp({ store, agents, images, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, owner: 'cam', tailscale });
   return { app, store, agents, images, sessions };
 }
 
