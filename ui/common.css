@@ -24,6 +24,11 @@ button:hover { border-color: var(--accent); }
 .sender { color: var(--accent); font-weight: 600; }
 .tag { float: right; margin-left: .5rem; padding: 0 .45rem; border-radius: 1rem; background: var(--accent); color: var(--panel); font-size: .75rem; font-weight: 600; transition: opacity 1.5s; }
 .tag.gone { opacity: 0; }
+.md ul.tasks { padding-left: .25rem; }
+.md li.task { list-style: none; }
+.md li.task label { display: block; padding: .2rem 0; cursor: pointer; }
+.md li.task input { width: 1.1rem; height: 1.1rem; margin-right: .35rem; vertical-align: -.15rem; accent-color: var(--accent); }
+.md li.task:has(input:checked) label { color: var(--dim); text-decoration: line-through; }
 .text { margin: .4rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .md { margin: .4rem 0; overflow-wrap: anywhere; }
 .md p, .md blockquote { margin: .4rem 0; white-space: pre-wrap; }

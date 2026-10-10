@@ -1,4 +1,5 @@
 import { EFFORTS, sortQueue } from './rank.js';
+import { setCheckBox } from '../ui/markdown.js';
 
 export class MemoError extends Error {
   constructor(status, message) {
@@ -105,6 +106,17 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return get(c.id);
   }
 
+  // The owner changes one check box of a memo ("- [ ] text"). The text changes only in that box, and the memo stays seen.
+  function check(id, n, on) {
+    const c = getOpen(id);
+    if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} has check boxes that change.`);
+    if (!Number.isInteger(n) || typeof on !== 'boolean') throw new MemoError(400, 'n must be a whole number and on must be true or false.');
+    const text = setCheckBox(c.text, n, on);
+    if (text === null) throw new MemoError(404, `Memo ${c.id} has no check box ${n}.`);
+    db.prepare('UPDATE memos SET text = ? WHERE id = ?').run(text, c.id);
+    return get(c.id);
+  }
+
   // The Inbox calls this when a memo was on the screen of the owner. The "new" or "updated" tag of the memo goes away.
   function seen(ids) {
     if (!Array.isArray(ids) || !ids.length || ids.length > 500 || !ids.every((n) => Number.isInteger(n))) {
@@ -172,5 +184,5 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     };
   }
 
-  return { get, send, reply, close, edit, seen, adjust, ack, forward, list, news, corrections, counts };
+  return { get, send, reply, close, edit, seen, check, adjust, ack, forward, list, news, corrections, counts };
 }

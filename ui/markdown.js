@@ -8,6 +8,7 @@ const isWeb = (href) => /^https?:\/\//i.test(href);
 const STORED = /^image:([0-9a-f]{16}\.(?:png|jpg|gif|webp))$/;
 const SEPARATOR = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/;
 // The cells of one table line. "\|" is a pipe inside a cell.
+const TASK = /^\[([ xX])\]\s+(.*)$/s;
 const cells = (line) => line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
 
 export function inline(text) {
@@ -62,6 +63,7 @@ export function frameDocument(html, vars = '') {
 export function parse(text, { html = false } = {}) {
   const lines = String(text ?? '').split('\n');
   const blocks = [];
+  let tasks = 0; // the count of check boxes before this place in the text
   let para = [];
   const flush = () => {
     if (para.length) blocks.push({ type: 'p', spans: inline(para.join('\n')) });
@@ -91,14 +93,21 @@ export function parse(text, { html = false } = {}) {
       const type = /^\s*\d/.test(line) ? 'ol' : 'ul';
       const item = type === 'ol' ? /^\s*\d+[.)]\s+(.*)$/ : /^\s*[-*]\s+(.*)$/;
       const items = [];
+      const at = []; // the line of each item
       for (; i < lines.length; i++) {
         const found = lines[i].match(item);
-        if (found) items.push(found[1]);
+        if (found) { items.push(found[1]); at.push(i); }
         else if (/^\s+\S/.test(lines[i])) items[items.length - 1] += `\n${lines[i].trim()}`; // an indented line continues the item
         else break;
       }
       i--;
-      blocks.push({ type, items: items.map(inline) });
+      // "- [ ] text" and "- [x] text" are items with a check box. checks has one entry for each item: null for a plain
+      // item, or { n, on, line }: the number of the box in the text, its state, and its line.
+      const boxes = type === 'ul' ? items.map((text) => text.match(TASK)) : [];
+      if (boxes.some(Boolean)) {
+        const checks = boxes.map((box, k) => (box ? { n: tasks++, on: box[1] !== ' ', line: at[k] } : null));
+        blocks.push({ type, items: items.map((text, k) => inline(boxes[k] ? boxes[k][2] : text)), checks });
+      } else blocks.push({ type, items: items.map(inline) });
     } else if (line.includes('|') && i + 1 < lines.length && SEPARATOR.test(lines[i + 1])) {
       flush();
       const head = cells(line);
@@ -118,9 +127,24 @@ export function parse(text, { html = false } = {}) {
   return blocks;
 }
 
+// The check boxes of a text, in order: [{ n, on, line }]. The server uses this to change one box.
+export function checkBoxes(text) {
+  return parse(text).flatMap((block) => (block.checks || []).filter(Boolean));
+}
+
+// The text with box n set to on or off. null if the text has no box n.
+export function setCheckBox(text, n, on) {
+  const box = checkBoxes(text).find((b) => b.n === n);
+  if (!box) return null;
+  const lines = String(text).split('\n');
+  lines[box.line] = lines[box.line].replace(/^(\s*[-*]\s+)\[[ xX]\]/, `$1[${on ? 'x' : ' '}]`);
+  return lines.join('\n');
+}
+
 // el: the element function of common.js. Returns the list of nodes for the text.
+// options.onCheck(n, on): called when the reader changes a check box. Without it the boxes are read-only.
 // options.html: show html blocks in a frame. options.vars: the page colors for the frame.
-export function render(text, el, { html = false, vars = '' } = {}) {
+export function render(text, el, { html = false, vars = '', onCheck = null } = {}) {
   const TAG = { b: 'strong', i: 'em', code: 'code' };
   const node = (span) => {
     if (span.t === 'text') return span.text;
@@ -151,6 +175,15 @@ export function render(text, el, { html = false, vars = '' } = {}) {
       const row = (tag, list) => el('tr', {}, ...list.map((spans) => el(tag, {}, ...spans.map(node))));
       // The wrapper lets a wide table scroll inside the memo on a phone.
       return el('div', { className: 'table' }, el('table', {}, el('thead', {}, row('th', block.head)), el('tbody', {}, ...block.rows.map((r) => row('td', r)))));
+    }
+    if (block.checks) {
+      return el('ul', { className: 'tasks' }, ...block.items.map((spans, k) => {
+        const check = block.checks[k];
+        if (!check) return el('li', {}, ...spans.map(node));
+        const box = el('input', { type: 'checkbox', checked: check.on, disabled: !onCheck });
+        if (onCheck) box.addEventListener('change', () => onCheck(check.n, box.checked, box));
+        return el('li', { className: 'task' }, el('label', {}, box, ' ', ...spans.map(node)));
+      }));
     }
     if (block.type === 'ul' || block.type === 'ol') return el(block.type, {}, ...block.items.map((spans) => el('li', {}, ...spans.map(node))));
     return el({ p: 'p', h: 'h3', quote: 'blockquote' }[block.type], {}, ...block.spans.map(node));

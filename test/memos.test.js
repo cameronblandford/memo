@@ -237,3 +237,19 @@ test('seen changes only memos to the owner and refuses a bad list', () => {
   refuses(() => s.seen('1'), 400, 'ids');
   refuses(() => s.seen([1.5]), 400, 'ids');
 });
+
+test('check changes one check box of a memo to the owner and keeps the memo seen', () => {
+  const s = makeStore();
+  s.send({ from: 'main', to: 'cam', text: 'Pack:\n- [ ] Rain jacket\n- [ ] Charger', impact: 3, effort: 'short' });
+  s.seen([1]);
+  assert.equal(s.check(1, 1, true).text, 'Pack:\n- [ ] Rain jacket\n- [x] Charger');
+  assert.equal(s.get(1).seen, 1, 'a check box is not an update of the memo');
+  assert.equal(s.check(1, 1, false).text, 'Pack:\n- [ ] Rain jacket\n- [ ] Charger');
+  refuses(() => s.check(1, 2, true), 404, 'check box 2');
+  refuses(() => s.check(1, '0', true), 400, 'whole number');
+  refuses(() => s.check(1, 0, 'yes'), 400, 'true or false');
+  s.send({ from: 'cam', to: 'main', text: '- [ ] a task for the agent' });
+  refuses(() => s.check(2, 0, true), 400, 'Only a memo to cam');
+  s.close(1);
+  refuses(() => s.check(1, 0, true), 409, '');
+});

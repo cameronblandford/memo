@@ -100,6 +100,7 @@ test('the liaison token cannot act as cam or read the queue of cam', async () =>
   assert.equal((await as('/api/send', { from: 'main', to: 'cam', text: 'x', impact: 5, effort: 'micro' })).status, 403);
   assert.equal((await as('/api/forward', { id: 2 })).status, 403);
   assert.equal((await as('/api/seen', { ids: [1] })).status, 403);
+  assert.equal((await as('/api/check', { id: 1, n: 0, on: true })).status, 403);
   assert.deepEqual((await call(app, '/api/seen', { ids: [1] })).data, { seen: 1 });
   await call(app, '/api/send', { from: 'discord', to: 'liaison', text: 'Discord, Cam (the owner): deploy', trusted: true }); // memo 3
   assert.equal((await as('/api/forward', { id: 3, to: 'liaison' })).status, 400);

@@ -50,7 +50,7 @@ function view(memo) {
   const node = el('article', { className: memo.id === selected ? 'memo selected' : 'memo' },
     el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), facts, tag),
     // A memo that quotes Discord text gets no frame.
-    el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars() })),
+    el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: (n, on, box) => check(memo.id, n, on, box) })),
     area,
     el('div', { className: 'row' },
       button('Reply', () => reply(memo, area.value)),
@@ -62,6 +62,16 @@ function view(memo) {
   node.addEventListener('click', () => select(memo.id));
   if (tag) watch.observe(node);
   return node;
+}
+
+// A check box of a memo. The server changes the text of the memo, so the state is the same on each device.
+// The list on the page gets the new text, so the next load makes no new render.
+async function check(id, n, on, box) {
+  try {
+    const saved = await api('/api/check', { id, n, on });
+    const memo = memos.find((m) => m.id === id);
+    if (memo) memo.text = saved.text;
+  } catch (error) { box.checked = !on; note(error.message); }
 }
 
 // A memo counts as seen when half of it (or half of the screen, for a long memo) was on the screen for 2 seconds
