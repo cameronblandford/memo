@@ -93,6 +93,34 @@ A block that starts with three backticks and `html` shows in a closed frame, for
 
 An image must be in Memo: `scripts/memo image <path> "<text>"` stores the file in `data/images/` and prints the Markdown line for the memo. The types are PNG, JPEG, GIF, and WebP, with a limit of 5 MB. The page gets the file with the token. An image address on the internet shows as a link, because the pages load nothing from the internet.
 
+## Ticks
+
+A tick is a small action of the owner that comes back: each day, on some days of the week, or some days after the owner did it last. A tick is not a memo. It is one row with a check box in the Inbox, between the memos.
+
+- A tick has an impact and an effort, and it gets its place in the list from the same score as a memo. With an equal score, the memo goes first. A tick never goes above a memo with a due date in the next 2 days.
+- The place does not change through the day. A tick has no due date and is never late.
+- A tick that the owner did not do goes away at the end of the day. There is no backlog.
+- "skip today" removes the row for today. "less" and "more" change the impact by 1, and the change stays for the next days.
+- A tick gets no tag and no toast, and it is not in the count of memos.
+- The limit is 5 active ticks (`MAX_ACTIVE` in `src/ticks.js`).
+
+```sh
+scripts/memo tick add --impact 3 --effort short Shower
+scripts/memo tick add --impact 2 --effort short --days mon,wed,fri --after 17:00 Stretch
+scripts/memo tick add --impact 2 --effort micro --every 7 -- Water the plants
+scripts/memo tick set 2 --impact 3
+scripts/memo tick list
+scripts/memo tick log 7
+scripts/memo tick remove 2
+```
+
+- `--days`: the tick is in the list only on these days of the week.
+- `--every <days>`: the tick comes back this many days after the owner did it. It stays in the list each day until the owner does it.
+- `--after HH:MM`: the tick is not in the list before this time.
+- `memo tick log` shows one letter for each day: `d` for done, `s` for skipped, and a point for no mark. An agent uses it to propose a change to a tick that the owner skips often.
+
+The day of the ticks starts at 03:00, so a tick of the evening is still there after midnight. `MEMO_DAY_START` in `.env` gives a different hour. `MEMO_TZ` gives the time zone of the owner (for example `America/New_York`) when the server is in a different time zone.
+
 ## The Agents page
 
 Open `http://127.0.0.1:3280/agents`. Each agent has one row: its state, its status line, and its counts of open memos.
@@ -180,6 +208,7 @@ npm test
 |---|---|
 | `src/rank.js` | The queue order. |
 | `src/memos.js` | The memo rules. |
+| `src/ticks.js` | The ticks: their schedule and their place in the queue. |
 | `src/agents.js` | Status, recap, and tmux control of the agents. |
 | `src/app.js` | The HTTP routes and the two tokens. |
 | `scripts/memo.mjs` | The command-line client. |

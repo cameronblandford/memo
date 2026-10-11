@@ -8,6 +8,8 @@ primary_region = "ewr"
 [env]
   MEMO_OWNER = "owner"
   TS_HOSTNAME = "memo"
+  # The server is in UTC. The ticks need the time zone of the owner.
+  # MEMO_TZ = "America/New_York"
   # Set these two after the first start, when you know the Tailscale name of the Machine. See deploy/fly/README.md.
   # MEMO_TAILSCALE_LOGIN = "you@example.com"
   # MEMO_TAILSCALE_HOST = "memo.your-tailnet.ts.net"

@@ -3,6 +3,8 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { MemoError } from './memos.js';
+import { placeTicks } from './ticks.js';
+import { dueSoon } from './rank.js';
 
 // The only files that /ui/<name> gives.
 const UI = {
@@ -14,7 +16,7 @@ const LIAISON = 'liaison';
 const digest = (s) => createHash('sha256').update(s).digest();
 const same = (a, b) => timingSafeEqual(digest(a), digest(b));
 
-export function createApp({ store, agents, images, root, token, liaisonToken, owner = 'owner', tailscale }) {
+export function createApp({ store, agents, images, ticks, root, token, liaisonToken, owner = 'owner', tailscale, now = () => new Date() }) {
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -149,6 +151,28 @@ export function createApp({ store, agents, images, root, token, liaisonToken, ow
     only(c, false);
     return c.json(agents.list());
   });
+  // The Inbox: the open memos to the owner in their order, and the ticks of now with their places in that order.
+  app.get('/api/queue', (c) => {
+    only(c, false);
+    const memos = store.list(owner);
+    return c.json({ memos, ticks: placeTicks(memos, ticks.due(), dueSoon(now())) });
+  });
+  app.get('/api/ticks', (c) => {
+    only(c, false);
+    return c.json(c.req.query('log') ? ticks.log(Number(c.req.query('log'))) : ticks.list());
+  });
+  const tick = (path, fn) => app.post(`/api/tick/${path}`, async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(fn(b));
+  });
+  tick('add', (b) => ticks.add(b));
+  tick('set', (b) => ticks.set(b.id, b));
+  tick('adjust', (b) => ticks.adjust(b.id, b.delta));
+  tick('remove', (b) => ticks.remove(b.id));
+  tick('done', (b) => ticks.done(b.id));
+  tick('skip', (b) => ticks.skip(b.id));
+  tick('undo', (b) => ticks.undo(b.id));
   // An image for a memo. The pages get it with the token, so a memo can show a screenshot and stay private.
   app.post('/api/image', async (c) => {
     only(c, false);

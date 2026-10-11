@@ -30,6 +30,7 @@ const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
 const drafts = new Map(); // memo id -> reply text that is not sent
 let memos = [];
+let ticks = []; // the small actions of now, each with `before`: the id of the memo below it
 let selected = null;
 
 function select(id) {
@@ -162,24 +163,52 @@ function showToasts() {
 let scrollTimer;
 addEventListener('scroll', () => { clearTimeout(scrollTimer); scrollTimer = setTimeout(showToasts, 150); }, { passive: true });
 
+// A tick is one small row between the memos. It is not a memo: no tag, no toast, and no place in the count.
+// A tick that the owner did stays as a done row until the next load, so the owner can take the mark back.
+function tickView(tick) {
+  const box = el('input', { type: 'checkbox' });
+  const node = el('div', { className: 'tick' },
+    el('label', {}, box, tick.text),
+    button('less', () => run(() => api('/api/tick/adjust', { id: tick.id, delta: -1 })), 'Move this tick down, also on the next days'),
+    button('more', () => run(() => api('/api/tick/adjust', { id: tick.id, delta: 1 })), 'Move this tick up, also on the next days'),
+    button('skip today', () => run(() => api('/api/tick/skip', { id: tick.id })), 'Remove this tick for today'));
+  box.addEventListener('change', async () => {
+    try {
+      await api(box.checked ? '/api/tick/done' : '/api/tick/undo', { id: tick.id });
+      node.classList.toggle('done', box.checked);
+      if (box.checked) doneTicks.set(tick.id, tick); else doneTicks.delete(tick.id);
+    } catch (error) { box.checked = !box.checked; note(error.message); }
+  });
+  if (doneTicks.has(tick.id)) { box.checked = true; node.classList.add('done'); }
+  node.dataset.tick = tick.id;
+  return node;
+}
+const doneTicks = new Map(); // ticks that the owner did on this page, for the done rows
+
 function render() {
   if (!memos.some((c) => c.id === selected)) selected = memos[0]?.id ?? null;
   watch.disconnect();
   for (const timer of waiting.values()) clearTimeout(timer);
   waiting.clear();
   queue.replaceChildren(...memos.map(view));
+  for (const tick of ticks) queue.insertBefore(tickView(tick), tick.before === null ? null : nodeOf(tick.before) || null);
   loadImages(queue);
   document.getElementById('count').textContent = memos.length === 1 ? '1 memo' : `${memos.length} memos`;
-  document.getElementById('empty').hidden = memos.length > 0;
+  document.getElementById('empty').hidden = memos.length > 0 || ticks.length > 0;
 }
 
 async function load() {
   try {
-    const next = await api('/api/list?to=__OWNER__');
+    const data = await api('/api/queue');
     note('');
+    const next = data.memos;
+    // A done row stays at its place while the server does not give the tick again.
+    for (const t of data.ticks) doneTicks.delete(t.id);
+    const nextTicks = [...data.ticks, ...[...doneTicks.values()]];
     // A new render makes each frame again and runs its script again, so render only when the list changed.
-    const changed = JSON.stringify(next) !== JSON.stringify(memos) || !queue.children.length;
+    const changed = JSON.stringify([next, nextTicks]) !== JSON.stringify([memos, ticks]) || !queue.children.length;
     memos = next;
+    ticks = nextTicks;
     if (changed) { render(); showToasts(); }
   } catch (error) { note(error.message); }
 }

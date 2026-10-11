@@ -43,6 +43,26 @@ export function openDb(path = ':memory:') {
       last_stop TEXT                        -- 'recap' | 'no_recap' | 'now'
     );
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ticks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      text TEXT NOT NULL,
+      impact INTEGER NOT NULL,              -- 1 to 5, as for a memo
+      effort TEXT NOT NULL,                 -- a key of WEIGHTS
+      days TEXT NOT NULL DEFAULT '',        -- 'mon,wed,fri'; empty: each day
+      every INTEGER NOT NULL DEFAULT 1,     -- the tick comes back this many days after the owner did it
+      after TEXT NOT NULL DEFAULT '',       -- 'HH:MM': not in the list before this time; empty: all day
+      active INTEGER NOT NULL DEFAULT 1,
+      created TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS tick_log (
+      tick_id INTEGER NOT NULL,
+      day TEXT NOT NULL,                    -- YYYY-MM-DD, the day of the owner
+      state TEXT NOT NULL,                  -- 'done' | 'skip'
+      at TEXT NOT NULL,
+      PRIMARY KEY (tick_id, day)
+    );
+  `);
   // A database from before the "new" tag gets the column. The memos that are in it count as seen.
   if (!db.prepare('PRAGMA table_info(memos)').all().some((c) => c.name === 'seen')) {
     db.exec('ALTER TABLE memos ADD COLUMN seen INTEGER NOT NULL DEFAULT 1');

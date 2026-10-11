@@ -9,11 +9,16 @@ const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.ge
 // The score is impact / weight. The two parts stay whole numbers so that equal scores compare as equal.
 const parts = (c) => (c.impact && WEIGHTS[c.effort] ? [c.impact, WEIGHTS[c.effort]] : [0, 1]);
 
-export function sortQueue(memos, now = new Date()) {
+// Gives the test for a memo with a due date in the next days. Such a memo goes above all others.
+export function dueSoon(now = new Date()) {
   const limit = new Date(now);
   limit.setDate(limit.getDate() + DUE_SOON_DAYS);
   const last = localDate(limit);
-  const soon = (c) => !!c.due && c.due <= last;
+  return (c) => !!c.due && c.due <= last;
+}
+
+export function sortQueue(memos, now = new Date()) {
+  const soon = dueSoon(now);
   return [...memos].sort((a, b) => {
     if (soon(a) !== soon(b)) return soon(a) ? -1 : 1;
     if (soon(a) && a.due !== b.due) return a.due < b.due ? -1 : 1;
