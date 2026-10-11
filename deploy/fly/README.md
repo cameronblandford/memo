@@ -9,7 +9,7 @@ usually runs Memo is off.
 | File | Function |
 |---|---|
 | `Dockerfile` | The image: Node 22, Claude Code, tmux, git, and Tailscale. |
-| `entrypoint.sh` | Starts Tailscale, then the Memo server as the user `node`. |
+| `entrypoint.sh` | Starts Tailscale, the optional Discord watcher, then the Memo server as the user `node`. |
 | `as-agent.sh` | Runs a command as the agent user. In the Machine its name is `as-agent`. |
 | `fly.toml.example` | The configuration of the app. |
 
@@ -52,6 +52,23 @@ Then open the Agents page (`https://<MEMO_TAILSCALE_HOST>/agents`) and select "S
 
 To look at the session of the agent: `fly ssh console`, then `as-agent tmux attach -t memo-main`. To leave it:
 Control-b, then d.
+
+## Discord (optional)
+
+The entrypoint starts the Discord watcher when the secret `DISCORD_BOT_TOKEN` is set. A loop runs
+`scripts/discord-watch.py` each 30 seconds, and continues when a run fails.
+
+1. Put the command that reads and sends Discord messages on the volume, for example `/data/local/bin/discord`.
+   It must read the bot token from `~/.config/discord-bot-token`; the entrypoint writes the secret to that file.
+2. Add the agent `liaison` (kind `short`) to `/data/local/agents.json`, and put its charter at `/data/local/charters/liaison.md`.
+3. Run `fly secrets set --stage` for `DISCORD_BOT_TOKEN`, `MEMO_LIAISON_TOKEN` (a new token), `DISCORD_OWNER_ID`,
+   `DISCORD_MAIL_CHANNELS`, and `DISCORD_OWNER_MAIL_CHANNELS`. To keep a value out of the shell history, use `fly secrets import`.
+4. Set `DISCORD_CLI` to the path of step 1 in `[env]` of `fly.toml`.
+5. Run `fly deploy`.
+
+The state and the logs are in `/data/memo/`: `discord-watch.json`, `discord-watch.log`, and `liaison-runs.log`.
+Only one watcher can run for a bot. Stop the watcher on the old computer first, and copy its `data/discord-watch.json`
+to `/data/memo/` so that no message is lost or sent two times.
 
 ## Move an installation to the Machine
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Starts Tailscale, then the Memo server as the user "node". Runs as root, as the first process of the Machine.
+# Starts Tailscale, the optional Discord watcher, then the Memo server as the user "node". Runs as root, as the first process of the Machine.
 # The volume /data holds: memo/ (the database and the images), home/ (the home directory of the agent, with the
 # Claude Code sign-in), local/ (agents.json and the charters), and tailscale/ (the state of this device).
 set -eu
@@ -27,5 +27,21 @@ export PATH="/app/scripts:$PATH"
 unset TS_AUTHKEY
 # as-agent reads the token from this file. /run is in memory; the file is not in the image and not on the volume.
 (umask 077; printf 'MEMO_TOKEN=%s\n' "$MEMO_TOKEN" > /run/memo.env); chown node:node /run/memo.env
+
+# Discord (optional): with the secret DISCORD_BOT_TOKEN, a loop runs the watcher each 30 seconds, as launchd does
+# on macOS. The loop continues when a run fails. The token goes to a file of the agent user, not into the environment of the agents.
+if [ -n "${DISCORD_BOT_TOKEN:-}" ]; then
+  mkdir -p "$HOME/.config" && chown node:node "$HOME/.config"
+  (umask 077; printf '%s\n' "$DISCORD_BOT_TOKEN" > "$HOME/.config/discord-bot-token"); chown node:node "$HOME/.config/discord-bot-token"
+  unset DISCORD_BOT_TOKEN
+  export MEMO_STATE_DIR="$data/memo" MEMO_WORK_DIR="$HOME/work"
+  (
+    sleep 10
+    while :; do
+      gosu node python3 /app/scripts/discord-watch.py >> "$data/memo/discord-watch.log" 2>&1 || true
+      sleep 30
+    done
+  ) &
+fi
 cd /app
 exec gosu node node --disable-warning=ExperimentalWarning src/server.js
