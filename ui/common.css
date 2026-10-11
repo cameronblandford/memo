@@ -29,7 +29,7 @@ button:hover { border-color: var(--accent); }
 .tick input { flex: none; width: 1.1rem; height: 1.1rem; margin: 0; padding: 0; accent-color: var(--accent); }
 .tick button { padding: 0 .3rem; border: 0; background: none; color: var(--dim); font-size: .8rem; }
 .tick button:hover { color: var(--accent); }
-.tick .late { color: var(--warn); font-size: .8rem; }
+.tick .late { color: var(--accent); font-size: .8rem; }
 .tick.done .late { display: none; }
 .tick.done label { color: var(--dim); text-decoration: line-through; }
 .tick.done button { visibility: hidden; }
