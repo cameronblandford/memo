@@ -92,6 +92,11 @@ export function createApp({ store, agents, images, ticks, root, token, liaisonTo
     only(c, false);
     return c.json(store.edit(b.id, b.text));
   });
+  app.post('/api/note', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(store.note(b.id, b.from, b.text));
+  });
   app.post('/api/seen', async (c) => {
     const b = await body(c);
     only(c, false);

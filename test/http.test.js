@@ -189,3 +189,14 @@ test('a request for news makes a remote agent online', async () => {
   assert.equal((await mac()).online, true);
   assert.equal((await call(app, '/api/agent/start', { name: 'mac' })).status, 400);
 });
+
+test('the note route keeps the memo open, and the liaison token cannot use it', async () => {
+  const { app } = makeApp();
+  const id = (await call(app, '/api/send', { from: 'main', to: 'cam', text: 'Approve?', impact: 3, effort: 'short' })).data.memo.id;
+  assert.equal((await call(app, '/api/note', { id, from: 'cam', text: 'Add the price.' }, LIAISON_TOKEN)).status, 403);
+  const r = await call(app, '/api/note', { id, from: 'cam', text: 'Add the price.' });
+  assert.equal(r.data.state, 'open');
+  assert.equal((await call(app, '/api/news?for=main')).data.noted[0].notes[0].text, 'Add the price.');
+  assert.equal((await call(app, '/api/queue')).data.memos[0].notes.length, 1);
+  assert.equal((await call(app, '/api/ack', { id })).data.notes[0].read, 1);
+});

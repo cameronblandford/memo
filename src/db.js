@@ -64,6 +64,17 @@ export function openDb(path = ':memory:') {
       PRIMARY KEY (tick_id, day)
     );
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      memo_id INTEGER NOT NULL,
+      author TEXT NOT NULL,                 -- the owner, or the sender of the memo
+      text TEXT NOT NULL,
+      created TEXT NOT NULL,
+      read INTEGER NOT NULL DEFAULT 0       -- 1: the other party read the note
+    );
+    CREATE INDEX IF NOT EXISTS notes_memo ON notes (memo_id);
+  `);
   // A database from before the overdue rule gets the column.
   if (!db.prepare('PRAGMA table_info(ticks)').all().some((c) => c.name === 'by')) {
     db.exec("ALTER TABLE ticks ADD COLUMN by TEXT NOT NULL DEFAULT ''");

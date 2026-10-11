@@ -83,6 +83,8 @@ A memo with a tag that is not on the screen gets a toast in the corner of the pa
 
 A list item that starts with `[ ]` or `[x]` (for example `- [ ] Rain jacket`) shows as a check box. The owner can tick it on the Inbox page. The server saves the state in the text of the memo, so it is the same on each device, and the agent sees it when it reads the memo.
 
+The button "Note" sends the text of the reply field to the sender of the memo, and the memo stays open in the Inbox with its place in the queue. Use it to ask for a change or for more data. The notes show below the memo text, with the answers of the agent. `memo wait` gives the agent each memo with a note that it did not read. The agent answers with `memo note <id> --from <name> "<text>"`, changes the memo with `memo edit`, or runs `memo ack <id>` when no answer is necessary. "Reply" and "Close" end the memo as before.
+
 The buttons "More" and "Less" change the impact of a memo by 1. The server records each change. When an agent sends its next memo, `memo` shows the agent the last 5 changes.
 
 The field at the top sends a memo from the owner to the agent.
@@ -177,6 +179,7 @@ scripts/memo list --to main
 scripts/memo reply 12 "Yes."
 scripts/memo close 12 "Done."
 scripts/memo edit 12 "A new text for an open memo."
+scripts/memo note 12 --from main "The price is $14 each month."
 scripts/memo ack 12
 scripts/memo status --as main "I update the README of the website."
 scripts/memo recap --as main "The README is complete. Next: the tests."

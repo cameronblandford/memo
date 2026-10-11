@@ -53,9 +53,14 @@ function view(memo) {
     el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), facts, tag),
     // A memo that quotes Discord text gets no frame.
     el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: (n, on, box) => check(memo.id, n, on, box) })),
+    // The notes of the memo: messages between the owner and the sender while the memo is open.
+    memo.notes ? el('div', { className: 'notes' }, ...memo.notes.map((n) => el('div', { className: 'note' },
+      el('div', { className: 'who' }, el('b', {}, n.author), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
+      el('div', { className: 'md' }, ...markdown(n.text, el))))) : '',
     area,
     el('div', { className: 'row' },
-      button('Reply', () => reply(memo, area.value)),
+      button('Reply', () => reply(memo, area.value), 'Send the answer. The memo leaves your Inbox.'),
+      ['liaison', 'discord'].includes(memo.sender) ? '' : button('Note', () => addNote(memo, area.value), 'Send the text to the agent. The memo stays open in your Inbox.'),
       button('Close', () => close(memo), 'Close the memo. The text in the reply field goes with it.'),
       el('span', { className: 'spacer' }),
       button('Less', () => adjust(memo.id, -1), 'Decrease the impact by 1'),
@@ -113,7 +118,7 @@ async function markSeen(id) {
 const MAX_TOASTS = 3;
 const toasts = document.getElementById('toasts');
 const closed = new Set(); // toast keys that the owner closed
-const toastKey = (memo) => `${memo.id}:${memo.seen}:${memo.text.length}`;
+const toastKey = (memo) => `${memo.id}:${memo.seen}:${memo.text.length}:${memo.notes?.length || 0}`;
 const nodeOf = (id) => [...queue.children].find((n) => Number(n.dataset.id) === id);
 function onScreen(node) {
   const r = node.getBoundingClientRect();
@@ -219,6 +224,10 @@ async function run(action) {
 const reply = (memo, text) => {
   if (!text.trim()) return note('Write a reply first.');
   return run(async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); });
+};
+const addNote = (memo, text) => {
+  if (!text.trim()) return note('Write a note first.');
+  return run(async () => { await api('/api/note', { id: memo.id, from: '__OWNER__', text }); drafts.delete(memo.id); });
 };
 const close = (memo) => run(async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); });
 const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta }));

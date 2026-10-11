@@ -8,6 +8,7 @@ const USAGE = `Usage:
   memo reply <id> <text>
   memo close <id> [<text>]
   memo edit <id> [--] <new text>
+  memo note <id> --from <name> [--] <text>
   memo ack <id> [<id> ...]
   memo forward <id> [--to <agent>]
   memo status --as <agent> <text>
@@ -100,7 +101,8 @@ function show(c) {
     + (c.impact != null ? `, impact ${c.impact}, effort ${c.effort}` : '')
     + (c.due ? `, due ${c.due}` : '')
     + (c.state !== 'open' ? `, ${c.state}` : '');
-  return `${head}\n${c.text}\n${c.reply ? `Reply: ${c.reply}\n` : ''}`;
+  const notes = (c.notes || []).map((n) => `Note from ${n.author}, ${when(n.created)}${n.read ? '' : ' (not read)'}: ${n.text}\n`).join('');
+  return `${head}\n${c.text}\n${notes}${c.reply ? `Reply: ${c.reply}\n` : ''}`;
 }
 
 const commands = {
@@ -125,6 +127,12 @@ const commands = {
     const id = memoId(rest[0]);
     await call('/api/edit', { id, text: rest.slice(1).join(' ') });
     console.log(`Memo ${id} has the new text.`);
+  },
+  // A message in an open memo to the owner. The memo stays open.
+  async note() {
+    const id = memoId(rest[0]);
+    await call('/api/note', { id, from: need('from'), text: rest.slice(1).join(' ') });
+    console.log(`Memo ${id} has the note. It stays open.`);
   },
   async close() {
     const id = memoId(rest[0]);
@@ -205,8 +213,14 @@ const commands = {
       const news = await call(`/api/news?for=${query(who)}`, undefined, { soft: true });
       if (news) {
         const fresh = news.to_you.filter((c) => !hold.includes(c.id));
-        if (fresh.length || news.results.length) {
+        const noted = news.noted || [];
+        if (fresh.length || news.results.length || noted.length) {
           if (fresh.length) console.log(`New memos to ${who}:\n\n${fresh.map(show).join('\n')}`);
+          if (noted.length) {
+            console.log(`Open memos from ${who} with a new note of the owner. Each memo stays open:\n\n${noted.map(show).join('\n')}`);
+            console.log(`Do what each note asks. Answer in the memo with: memo note <id> --from ${who} "<text>". To change the memo text, use memo edit.`);
+            console.log(`If no answer is necessary, run: memo ack ${noted.map((c) => c.id).join(' ')}\n`);
+          }
           if (news.results.length) {
             console.log(`Results of memos from ${who}:\n\n${news.results.map(show).join('\n')}`);
             console.log(`After you read the results, run: memo ack ${news.results.map((c) => c.id).join(' ')}`);
