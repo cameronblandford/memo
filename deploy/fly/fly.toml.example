@@ -1,0 +1,28 @@
+# Copy this file to fly.toml in the root of the repository (git ignores it), then set the app name.
+app = "memo-yourname"
+primary_region = "ewr"
+
+[build]
+  dockerfile = "deploy/fly/Dockerfile"
+
+[env]
+  MEMO_OWNER = "owner"
+  TS_HOSTNAME = "memo"
+  # Set these two after the first start, when you know the Tailscale name of the Machine. See deploy/fly/README.md.
+  # MEMO_TAILSCALE_LOGIN = "you@example.com"
+  # MEMO_TAILSCALE_HOST = "memo.your-tailnet.ts.net"
+
+# All data is on this volume. Fly makes a snapshot of it each day.
+[mounts]
+  source = "memo_data"
+  destination = "/data"
+  initial_size = "3gb"
+  snapshot_retention = 14
+
+# There is no [http_service] and no [[services]]: the Machine has no public address. It is always on.
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"
+
+[[restart]]
+  policy = "always"

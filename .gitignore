@@ -4,3 +4,4 @@ work/
 .env
 .superpowers/
 local/
+fly.toml
