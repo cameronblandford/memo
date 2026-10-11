@@ -53,7 +53,8 @@ if (login && !['127.0.0.1', '::1', 'localhost'].includes(hostname)) {
   process.exit(1);
 }
 const tailscale = login ? { login, host: tailscaleHost } : undefined;
-const app = createApp({ store, agents, images, ticks, root, token, liaisonToken, owner, tailscale });
+const ticksOn = ['1', 'true', 'on', 'yes'].includes(String(process.env.MEMO_TICKS || '').toLowerCase());
+const app = createApp({ store, agents, images, ticks, ticksOn, root, token, liaisonToken, owner, tailscale });
 
 const port = Number(process.env.PORT || 3280);
 serve({ fetch: app.fetch, hostname, port }, () => {

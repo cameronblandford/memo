@@ -274,3 +274,19 @@ test('an overdue tick goes to the top of the list, above a memo with a due date'
   assert.deepEqual(place(memos, [tick(8, 3, 'short'), tick(9, 1, 'day', true)]), [[9, 1], [8, 3]]);
   assert.deepEqual(place([], [tick(9, 1, 'day', true)]), [[9, null]]);
 });
+
+test('ticks are off by default: the routes refuse, and the queue has no ticks', async () => {
+  const { app, ticks } = makeApp({ ticksOn: false });
+  ticks.add(SHOWER);
+  await call(app, '/api/send', { from: 'main', to: 'cam', text: 'High?', impact: 5, effort: 'micro' });
+  const q = (await call(app, '/api/queue')).data;
+  assert.equal(q.memos.length, 1);
+  assert.deepEqual(q.ticks, []);
+  for (const path of ['/api/ticks', '/api/ticks?log=3']) {
+    const r = await call(app, path);
+    assert.equal(r.status, 400);
+    assert.match(r.data.error, /MEMO_TICKS=1/);
+  }
+  assert.equal((await call(app, '/api/tick/add', { text: 'x', impact: 1, effort: 'micro' })).status, 400);
+  assert.equal((await call(app, '/api/tick/done', { id: 1 })).status, 400);
+});

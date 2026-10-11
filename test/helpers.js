@@ -16,7 +16,7 @@ const CONFIG = [
   { name: 'liaison', kind: 'short', dir: '~/p', model: 'm' },
 ];
 
-export function makeApp({ tailscale, config = CONFIG } = {}) {
+export function makeApp({ tailscale, config = CONFIG, ticksOn = true } = {}) {
   const db = openDb();
   const store = createStore(db, { owner: 'cam', names: ['cam', 'discord', ...config.map((a) => a.name)], forwardTo: config.filter((a) => a.kind !== 'short').map((a) => a.name) });
   const sessions = new Set();
@@ -24,7 +24,7 @@ export function makeApp({ tailscale, config = CONFIG } = {}) {
   const agents = createAgents({ db, config, root: ROOT, owner: 'cam', tmux, counts: store.counts });
   const images = createImages(mkdtempSync(join(tmpdir(), 'memo-images-')));
   const ticks = createTicks(db);
-  const app = createApp({ store, agents, images, ticks, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, owner: 'cam', tailscale });
+  const app = createApp({ store, agents, images, ticks, ticksOn, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, owner: 'cam', tailscale });
   return { app, store, agents, images, ticks, sessions };
 }
 

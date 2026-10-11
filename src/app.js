@@ -16,7 +16,8 @@ const LIAISON = 'liaison';
 const digest = (s) => createHash('sha256').update(s).digest();
 const same = (a, b) => timingSafeEqual(digest(a), digest(b));
 
-export function createApp({ store, agents, images, ticks, root, token, liaisonToken, owner = 'owner', tailscale, now = () => new Date() }) {
+// ticksOn: the ticks are an optional part. They are off unless MEMO_TICKS is set (see README.md).
+export function createApp({ store, agents, images, ticks, ticksOn = false, root, token, liaisonToken, owner = 'owner', tailscale, now = () => new Date() }) {
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -160,15 +161,20 @@ export function createApp({ store, agents, images, ticks, root, token, liaisonTo
   app.get('/api/queue', (c) => {
     only(c, false);
     const memos = store.list(owner);
-    return c.json({ memos, ticks: placeTicks(memos, ticks.due(), dueSoon(now())) });
+    return c.json({ memos, ticks: ticksOn ? placeTicks(memos, ticks.due(), dueSoon(now())) : [] });
   });
+  const needTicks = () => {
+    if (!ticksOn) throw new MemoError(400, 'Ticks are off. To use them, set MEMO_TICKS=1 in .env and start the server again.');
+  };
   app.get('/api/ticks', (c) => {
     only(c, false);
+    needTicks();
     return c.json(c.req.query('log') ? ticks.log(Number(c.req.query('log'))) : ticks.list());
   });
   const tick = (path, fn) => app.post(`/api/tick/${path}`, async (c) => {
     const b = await body(c);
     only(c, false);
+    needTicks();
     return c.json(fn(b));
   });
   tick('add', (b) => ticks.add(b));
