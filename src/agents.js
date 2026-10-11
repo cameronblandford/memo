@@ -10,6 +10,8 @@ export const stopMessage = (owner) => `${title(owner)} stops this session. Recor
 export const continueMessage = (owner) => `${title(owner)} cancels the stop. Continue your work: run \`memo list\`, then \`memo wait\`.`;
 const MAX_RECAP = 2000;
 const MAX_STATUS = 300;
+// A remote agent asks for news each 30 seconds while it waits. After this time with no request, it shows as offline.
+const ONLINE_MS = 120000;
 
 
 export const session = (name) => `memo-${name}`;
@@ -24,11 +26,13 @@ export function loadConfig(path, owner = 'owner') {
     if (RESERVED.includes(a.name)) throw new Error(`agents.json: "${a.name}" is not permitted as an agent name.`);
     if (seen.has(a.name)) throw new Error(`agents.json: the name "${a.name}" is there two times.`);
     seen.add(a.name);
-    if (a.kind !== 'long' && a.kind !== 'short') throw new Error(`agents.json: the kind of ${a.name} must be "long" or "short".`);
+    if (!['long', 'short', 'remote'].includes(a.kind)) throw new Error(`agents.json: the kind of ${a.name} must be "long", "short", or "remote".`);
+    // The session of a remote agent is on a different computer, and the agents.json of that computer gives its dir and model.
+    if (a.kind === 'remote') continue;
     if (typeof a.dir !== 'string' || !a.dir) throw new Error(`agents.json: ${a.name} needs a dir.`);
     if (typeof a.model !== 'string' || !a.model) throw new Error(`agents.json: ${a.name} needs a model.`);
   }
-  if (!config.some((a) => a.kind === 'long')) throw new Error('agents.json needs one long agent or more.');
+  if (!config.some((a) => a.kind !== 'short')) throw new Error('agents.json needs one long or remote agent or more.');
   return config;
 }
 
@@ -56,6 +60,7 @@ export function realTmux() {
 export function createAgents({ db, config, root, tmux, owner = 'owner', counts = () => ({}), now = () => new Date(), recapTimeoutMs = 180000 }) {
   const ts = () => now().toISOString();
   const timers = new Map();
+  const contacts = new Map(); // remote agent -> the time of its last request, in milliseconds
   for (const a of config) db.prepare('INSERT OR IGNORE INTO status (agent) VALUES (?)').run(a.name);
 
   const row = (name) => ({ ...db.prepare('SELECT * FROM status WHERE agent = ?').get(name) });
@@ -69,6 +74,7 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
   function known(name, kind) {
     const a = config.find((x) => x.name === name);
     if (!a) throw new MemoError(400, `No agent has the name ${name}.`);
+    if (kind && a.kind === 'remote') throw new MemoError(400, `${name} is a remote agent. Its session is on a different computer, so this server cannot start or stop it.`);
     if (kind && a.kind !== kind) throw new MemoError(400, `${name} is a ${a.kind} agent. It has no session to start or stop.`);
     return a;
   }
@@ -88,8 +94,10 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
   function list() {
     return config.map((a) => {
       const r = row(a.name);
+      const last = contacts.get(a.name);
       return {
         name: a.name, kind: a.kind, running: a.kind === 'long' && running(a.name),
+        ...(a.kind === 'remote' ? { online: last !== undefined && now().getTime() - last < ONLINE_MS, contact: last === undefined ? null : new Date(last).toISOString() } : {}),
         status: r.text, updated: r.updated, recap: r.recap, recap_at: r.recap_at,
         stopping_since: r.stopping_since, last_stop: r.last_stop, ...counts(a.name),
       };
@@ -132,8 +140,14 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     return { name, saved: true, stopped };
   }
 
+  // A request from the computer of a remote agent. The Agents page shows from it if the agent is online.
+  function contact(name) {
+    if (config.some((a) => a.name === name && a.kind === 'remote')) contacts.set(name, now().getTime());
+  }
+
   function setStatus(name, text) {
     known(name);
+    contact(name);
     if (typeof text !== 'string' || !text.trim()) throw new MemoError(400, 'text is necessary.');
     set(name, { text: text.replace(/\s+/g, ' ').trim().slice(0, MAX_STATUS), updated: ts() });
     return { name, saved: true };
@@ -151,7 +165,8 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     return text;
   }
 
-  const defaultAgent = () => config.find((a) => a.kind === 'long').name;
+  // The first agent with a session: a long agent if one exists, or a remote agent.
+  const defaultAgent = () => (config.find((a) => a.kind === 'long') || config.find((a) => a.kind === 'remote')).name;
 
   function resume() {
     for (const a of config.filter((x) => x.kind === 'long')) {
@@ -161,5 +176,5 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     }
   }
 
-  return { list, start, stop, recap, setStatus, prompt, defaultAgent, resume };
+  return { list, start, stop, recap, setStatus, prompt, defaultAgent, resume, contact };
 }

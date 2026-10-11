@@ -23,6 +23,7 @@ const list = document.getElementById('list');
 
 function state(agent) {
   if (agent.kind === 'short') return `Last run: ${age(agent.updated)}`;
+  if (agent.kind === 'remote') return agent.online ? 'Online, on a different computer' : `Offline${agent.contact ? `, last contact ${age(agent.contact)}` : ''}`;
   if (agent.stopping_since) return 'Stopping, waits for the recap';
   if (agent.running) return 'Running';
   return agent.last_stop === 'no_recap' ? 'Stopped with no recap' : 'Stopped';
@@ -36,11 +37,11 @@ function control(agent) {
 
 function view(agent) {
   const parts = [el('div', { className: 'meta' }, el('span', { className: 'sender' }, agent.name), ` ${state(agent)}`)];
-  if (agent.kind === 'long') {
+  if (agent.kind !== 'short') {
     parts.push(el('p', { className: 'text' }, agent.status ? `${agent.status} (${age(agent.updated)})` : 'No status line.'));
   }
   parts.push(el('p', { className: 'dim' }, `Open memos to ${agent.name}: ${agent.open_to}. Open memos from ${agent.name}: ${agent.open_from}.`));
-  if (agent.kind === 'long' && agent.recap && !agent.running) {
+  if (agent.kind !== 'short' && agent.recap && !agent.running && !agent.online) {
     parts.push(el('details', { open: true }, el('summary', {}, `Recap, ${age(agent.recap_at)}`), el('div', { className: 'md' }, ...markdown(agent.recap, el))));
   }
   if (agent.kind === 'long') parts.push(el('div', { className: 'row' }, control(agent)));

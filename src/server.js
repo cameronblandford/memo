@@ -33,7 +33,7 @@ const db = openDb(dbPath);
 const store = createStore(db, {
   owner,
   names: [owner, 'discord', ...config.map((a) => a.name)],
-  forwardTo: config.filter((a) => a.kind === 'long').map((a) => a.name),
+  forwardTo: config.filter((a) => a.kind !== 'short').map((a) => a.name),
 });
 const agents = createAgents({ db, config, root, owner, tmux: realTmux(), counts: store.counts });
 const images = createImages(join(dirname(dbPath), 'images'));

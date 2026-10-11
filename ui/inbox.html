@@ -177,7 +177,7 @@ const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta }));
 
 async function loadAgents() {
   try {
-    const long = (await api('/api/agents')).filter((a) => a.kind === 'long');
+    const long = (await api('/api/agents')).filter((a) => a.kind !== 'short');
     capture.elements.to.replaceChildren(...long.map((a) => el('option', { value: a.name }, a.name)));
     capture.elements.to.hidden = long.length < 2;
   } catch (error) { note(error.message); }

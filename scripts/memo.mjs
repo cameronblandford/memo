@@ -31,7 +31,8 @@ function fileEnv() {
 }
 const file = fileEnv();
 const token = process.env.MEMO_TOKEN || file.MEMO_TOKEN;
-const base = process.env.MEMO_URL || `http://127.0.0.1:${file.PORT || 3280}`;
+// MEMO_URL is for a server on a different computer, for example https://memo.your-tailnet.ts.net
+const base = (process.env.MEMO_URL || file.MEMO_URL || `http://127.0.0.1:${file.PORT || 3280}`).replace(/\/+$/, '');
 
 function fail(message) {
   console.error(message);

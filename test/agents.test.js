@@ -244,3 +244,53 @@ test('realTmux starts a session, types into it, and ends it', { skip: !hasTmux &
   }
   assert.equal(tmux.has(name), false);
 });
+
+const WITH_REMOTE = [...CONFIG, { name: 'mac', kind: 'remote' }];
+
+test('a remote agent needs no dir and no model, and can be the only agent with a session', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'memo-config-'));
+  const write = (value) => { writeFileSync(join(dir, 'agents.json'), JSON.stringify(value)); return join(dir, 'agents.json'); };
+  assert.deepEqual(loadConfig(write(WITH_REMOTE)), WITH_REMOTE);
+  assert.deepEqual(loadConfig(write([{ name: 'mac', kind: 'remote' }])), [{ name: 'mac', kind: 'remote' }]);
+});
+
+test('the server does not start or stop a remote agent', () => {
+  const { agents, tmux } = make({ config: WITH_REMOTE });
+  refuses(() => agents.start('mac'), 400, 'different computer');
+  refuses(() => agents.stop('mac'), 400, 'different computer');
+  agents.resume();
+  assert.deepEqual(tmux.calls, []);
+});
+
+test('a remote agent is online for 2 minutes after its last request', () => {
+  let time = Date.parse('2026-01-01T10:00:00Z');
+  const { agents } = make({ config: WITH_REMOTE, now: () => new Date(time) });
+  assert.equal(row(agents, 'mac').online, false);
+  assert.equal(row(agents, 'mac').contact, null);
+  agents.contact('mac');
+  assert.equal(row(agents, 'mac').online, true);
+  assert.equal(row(agents, 'mac').contact, '2026-01-01T10:00:00.000Z');
+  time += 119000;
+  assert.equal(row(agents, 'mac').online, true);
+  time += 2000;
+  assert.equal(row(agents, 'mac').online, false);
+  agents.setStatus('mac', 'I read the budget database.');
+  assert.equal(row(agents, 'mac').online, true);
+  assert.equal(row(agents, 'mac').status, 'I read the budget database.');
+});
+
+test('a request for a different agent does not make an agent online', () => {
+  const { agents } = make({ config: WITH_REMOTE });
+  agents.contact('main');
+  agents.contact('nobody');
+  assert.equal(row(agents, 'main').online, undefined);
+  assert.equal(row(agents, 'mac').online, false);
+});
+
+test('a remote agent gets its charter and its recap from the server', () => {
+  const { agents, root } = make({ config: WITH_REMOTE });
+  writeFileSync(join(root, 'charters', 'mac.md'), '# Charter: mac\n');
+  agents.recap('mac', 'The sync is complete.');
+  assert.ok(agents.prompt('mac').startsWith('# Charter: mac'));
+  assert.ok(agents.prompt('mac').includes('The sync is complete.'));
+});

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Starts the Claude Code session of one long Memo agent, in its work directory, with its charter.
+# Starts the Claude Code session of one long or remote Memo agent, in its work directory, with its charter.
 #   scripts/agent.sh <name>
 # The server runs this in the tmux session memo-<name> (src/agents.js). Do not run it by hand while that session exists.
 #   MEMO_AGENT_DRY=1 prints the settings and the start text, and starts nothing.
@@ -13,12 +13,13 @@ PATH="$root/scripts:$HOME/.local/bin:$HOME/Library/pnpm/bin:/opt/homebrew/bin:/u
 local_file() { if [ -e "${MEMO_LOCAL:-$root/local}/$1" ]; then echo "${MEMO_LOCAL:-$root/local}/$1"; else echo "$root/$1"; fi; }
 field() {
   node --input-type=commonjs -e '
-    const a = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).find((x) => x.name === process.argv[2] && x.kind === "long");
+    const a = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).find((x) => x.name === process.argv[2] && x.kind !== "short");
     if (!a) process.exit(1);
     process.stdout.write(String(a[process.argv[3]]));' "$(local_file agents.json)" "$name" "$1"
 }
 dir="$(field dir)" || { echo "No long agent has the name $name in agents.json." >&2; exit 1; }
 model="$(field model)"
+[ "$dir" != undefined ] && [ "$model" != undefined ] || { echo "The agent $name needs a dir and a model in the agents.json of this computer." >&2; exit 1; }
 case "$dir" in "~"*) dir="$HOME${dir#"~"}" ;; esac
 # The server builds the start text: the charter, then the recap of the last session if one exists.
 prompt="$(memo prompt --as "$name")"

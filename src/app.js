@@ -142,6 +142,7 @@ export function createApp({ store, agents, images, root, token, liaisonToken, ow
   app.get('/api/news', (c) => {
     const who = c.req.query('for');
     only(c, who === LIAISON);
+    agents.contact(who);
     return c.json(store.news(who));
   });
   app.get('/api/agents', (c) => {

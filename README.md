@@ -104,6 +104,27 @@ Open `http://127.0.0.1:3280/agents`. Each agent has one row: its state, its stat
 
 The agents are in `agents.json`. To add an agent, add an entry and a file `charters/<name>.md`, then restart the server.
 
+## An agent on a different computer
+
+A remote agent has its session on a different computer from the server. Use it when the server is always on (for example in the cloud) and some work needs a computer that is not always on.
+
+On the server:
+
+1. Add the agent to `agents.json` with the kind `remote`, for example `{ "name": "mac", "kind": "remote" }`.
+2. Add its charter, `charters/mac.md`.
+3. Start the server again.
+
+On the computer of the agent:
+
+1. Get this repository. No server runs there.
+2. Make `.env` with `MEMO_URL` (the address of the server) and `MEMO_TOKEN`, then run `chmod 600 .env`.
+3. Add the agent to `local/agents.json` with its `dir` and `model`, for example `{ "name": "mac", "kind": "remote", "dir": "~", "model": "claude-opus-5-5" }`.
+4. Run `scripts/remote-agent.sh mac`, or use the LaunchAgent `launchd/memo.remote.plist.example`.
+
+The script starts the session of the agent in the tmux session `memo-mac` when the server answers. Memos to the agent wait on the server while its computer is offline. The Agents page shows "Online" for 2 minutes after the last request of the agent. The server cannot start or stop the session; stop it on its computer with `tmux kill-session -t memo-mac`.
+
+The remote agent uses `MEMO_TOKEN`, which can do all operations. Give it only to a computer that you trust.
+
 ## Your own files: `local/`
 
 The files `agents.json` and `charters/*.md` in the repository are examples. Put your own versions in `local/`, which git ignores:

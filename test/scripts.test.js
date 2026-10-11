@@ -73,3 +73,15 @@ test('the impact scale defines the five levels and the five sizes', () => {
     assert.ok(text.includes(part), `impact.md must contain: ${part}`);
   }
 });
+
+test('remote-agent.sh refuses a name with other characters', async () => {
+  const r = await run(join(ROOT, 'scripts', 'remote-agent.sh'), ['main; rm -rf ~'], { env: { ...process.env, MEMO_REMOTE_ONCE: '1' } }).catch((e) => e);
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /only a-z/);
+});
+
+test('remote-agent.sh starts nothing when the server does not answer', async () => {
+  const name = `test-offline-${process.pid}`;
+  const r = await run(join(ROOT, 'scripts', 'remote-agent.sh'), [name], { env: { ...process.env, MEMO_REMOTE_ONCE: '1', MEMO_URL: 'http://127.0.0.1:9', MEMO_TOKEN: TOKEN } });
+  assert.equal(r.stdout, '');
+});

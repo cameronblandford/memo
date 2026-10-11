@@ -180,3 +180,12 @@ test('a page with no saved token gets access through Tailscale', async () => {
   const { app } = makeApp({ tailscale: TAILNET });
   assert.equal((await viaTailscale(app, '/api/list?to=cam', { Authorization: 'Bearer' })).status, 200);
 });
+
+test('a request for news makes a remote agent online', async () => {
+  const { app } = makeApp({ config: [{ name: 'main', kind: 'long', dir: '~/p', model: 'm' }, { name: 'mac', kind: 'remote' }] });
+  const mac = async () => (await call(app, '/api/agents')).data.find((a) => a.name === 'mac');
+  assert.equal((await mac()).online, false);
+  assert.equal((await call(app, '/api/news?for=mac')).status, 200);
+  assert.equal((await mac()).online, true);
+  assert.equal((await call(app, '/api/agent/start', { name: 'mac' })).status, 400);
+});
