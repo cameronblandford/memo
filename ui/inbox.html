@@ -168,7 +168,7 @@ addEventListener('scroll', () => { clearTimeout(scrollTimer); scrollTimer = setT
 function tickView(tick) {
   const box = el('input', { type: 'checkbox' });
   const node = el('div', { className: 'tick' },
-    el('label', {}, box, tick.text),
+    el('label', {}, box, tick.text, tick.overdue ? el('span', { className: 'late' }, 'overdue') : ''),
     button('less', () => run(() => api('/api/tick/adjust', { id: tick.id, delta: -1 })), 'Move this tick down, also on the next days'),
     button('more', () => run(() => api('/api/tick/adjust', { id: tick.id, delta: 1 })), 'Move this tick up, also on the next days'),
     button('skip today', () => run(() => api('/api/tick/skip', { id: tick.id })), 'Remove this tick for today'));

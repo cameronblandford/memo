@@ -16,8 +16,8 @@ const USAGE = `Usage:
   memo prompt --as <agent>
   memo image <path> [<text that describes the image>]
   memo wait --as <agent> [--hold <id>,<id>] [<max_minutes>]
-  memo tick add --impact 1-5 --effort <effort> [--days mon,wed,fri] [--every <days>] [--after HH:MM] [--] <text>
-  memo tick set <id> [--impact ...] [--effort ...] [--days ...] [--every ...] [--after ...] [<new text>]
+  memo tick add --impact 1-5 --effort <effort> [--days mon,wed,fri] [--every <days>] [--after HH:MM] [--by HH:MM] [--] <text>
+  memo tick set <id> [--impact ...] [--effort ...] [--days ...] [--every ...] [--after ...] [--by ...] [<new text>]
   memo tick list | memo tick remove <id> | memo tick log [<days>]
 A memo to the owner needs --impact and --effort.`;
 
@@ -67,7 +67,7 @@ async function call(path, body, { soft = false } = {}) {
   return data;
 }
 
-const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after'];
+const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by'];
 function parse(argv) {
   const flags = {};
   const rest = [];
@@ -173,10 +173,10 @@ const commands = {
   // A tick is a small action of the owner that comes back. See "Ticks" in README.md.
   async tick() {
     const [action, ...words] = rest;
-    const schedule = (t) => [t.days ? `on ${t.days}` : 'each day', t.every > 1 ? `${t.every} days after the last time` : '', t.after ? `after ${t.after}` : ''].filter(Boolean).join(', ');
+    const schedule = (t) => [t.days ? `on ${t.days}` : 'each day', t.every > 1 ? `${t.every} days after the last time` : '', t.after ? `after ${t.after}` : '', t.by ? `by ${t.by}` : ''].filter(Boolean).join(', ');
     const line = (t) => `#${t.id} impact ${t.impact}, effort ${t.effort}, ${schedule(t)}: ${t.text}`;
     const fields = (text) => ({
-      text: text || undefined, effort: flags.effort, days: flags.days, after: flags.after,
+      text: text || undefined, effort: flags.effort, days: flags.days, after: flags.after, by: flags.by,
       impact: flags.impact === undefined ? undefined : Number(flags.impact),
       every: flags.every === undefined ? undefined : Number(flags.every),
     });

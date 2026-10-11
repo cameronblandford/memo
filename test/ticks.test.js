@@ -20,7 +20,7 @@ const ids = (ticks) => ticks.due().map((t) => t.id);
 test('a new tick is due each day until the owner does it', () => {
   const { ticks, go } = make();
   const t = ticks.add(SHOWER);
-  assert.deepEqual(ticks.due(), [{ id: t.id, text: 'Shower', impact: 3, effort: 'short' }]);
+  assert.deepEqual(ticks.due(), [{ id: t.id, text: 'Shower', impact: 3, effort: 'short', overdue: false }]);
   ticks.done(t.id);
   assert.deepEqual(ids(ticks), []);
   go('2026-10-13T12:00:00Z');
@@ -164,7 +164,7 @@ test('the log shows the marks of the last days, the newest day last', () => {
 });
 
 const memo = (id, impact, effort, due = null) => ({ id, impact, effort, due });
-const tick = (id, impact, effort) => ({ id, impact, effort, text: `t${id}` });
+const tick = (id, impact, effort, overdue = false) => ({ id, impact, effort, overdue, text: `t${id}` });
 const now = new Date(2026, 9, 12, 12);
 const place = (memos, ticks) => placeTicks(sortQueue(memos, now), ticks, dueSoon(now)).map((t) => [t.id, t.before]);
 
@@ -195,7 +195,7 @@ test('the queue route gives the memos and the ticks with their places', async ()
   const t = (await call(app, '/api/tick/add', { text: 'Shower', impact: 3, effort: 'short' })).data;
   let q = (await call(app, '/api/queue')).data;
   assert.deepEqual(q.memos.map((m) => m.text), ['High?', 'Low?']);
-  assert.deepEqual(q.ticks, [{ id: t.id, text: 'Shower', impact: 3, effort: 'short', before: q.memos[1].id }]);
+  assert.deepEqual(q.ticks, [{ id: t.id, text: 'Shower', impact: 3, effort: 'short', overdue: false, before: q.memos[1].id }]);
   assert.equal((await call(app, '/api/tick/adjust', { id: t.id, delta: 1 })).data.impact, 4);
   assert.equal((await call(app, '/api/tick/done', { id: t.id })).data.state, 'done');
   q = (await call(app, '/api/queue')).data;
@@ -213,4 +213,64 @@ test('the liaison token cannot read or change ticks', async () => {
   for (const path of ['add', 'set', 'adjust', 'remove', 'done', 'skip', 'undo']) {
     assert.equal((await call(app, `/api/tick/${path}`, { id: 1, text: 'x', impact: 1, effort: 'micro' }, LIAISON_TOKEN)).status, 403);
   }
+});
+
+const late = (ticks) => ticks.due().map((t) => t.overdue);
+
+test('a tick that the owner did not do on its last day is overdue', () => {
+  const { ticks, go } = make();
+  const t = ticks.add(SHOWER);
+  assert.deepEqual(late(ticks), [false], 'a new tick is not overdue');
+  go('2026-10-13T12:00:00Z');
+  assert.deepEqual(late(ticks), [true]);
+  ticks.done(t.id);
+  go('2026-10-14T12:00:00Z');
+  assert.deepEqual(late(ticks), [false]);
+});
+
+test('a skip is a decision, so the tick is not overdue on the next day', () => {
+  const { ticks, go } = make();
+  const t = ticks.add(SHOWER);
+  ticks.skip(t.id);
+  go('2026-10-13T12:00:00Z');
+  assert.deepEqual(late(ticks), [false]);
+});
+
+test('for some days of the week, the last day of the schedule counts', () => {
+  const { ticks, go } = make(); // Monday
+  const t = ticks.add({ ...SHOWER, days: 'mon,wed' });
+  go('2026-10-14T12:00:00Z'); // Wednesday: Monday has no mark
+  assert.deepEqual(late(ticks), [true]);
+  ticks.done(t.id);
+  go('2026-10-19T12:00:00Z'); // the next Monday: Wednesday is done
+  assert.deepEqual(late(ticks), [false]);
+});
+
+test('a tick with "every" is overdue after the day on which it came back', () => {
+  const { ticks, go } = make();
+  const t = ticks.add({ text: 'Call family', impact: 3, effort: 'short', every: 7 });
+  ticks.done(t.id);
+  go('2026-10-19T12:00:00Z'); // 7 days later: it is back
+  assert.deepEqual(late(ticks), [false]);
+  go('2026-10-20T12:00:00Z');
+  assert.deepEqual(late(ticks), [true]);
+  ticks.skip(t.id);
+  go('2026-10-21T12:00:00Z');
+  assert.deepEqual(late(ticks), [false], 'a skip gives one more day');
+  go('2026-10-22T12:00:00Z');
+  assert.deepEqual(late(ticks), [true]);
+});
+
+test('a tick with "by" is overdue after that time of the day', () => {
+  const { ticks, go } = make('2026-10-12T09:59:00Z');
+  ticks.add({ ...SHOWER, by: '10:00' });
+  assert.deepEqual(late(ticks), [false]);
+  go('2026-10-12T10:00:00Z');
+  assert.deepEqual(late(ticks), [true]);
+});
+
+test('an overdue tick goes to the top of the list, above a memo with a due date', () => {
+  const memos = [memo(1, 1, 'day', '2026-10-13'), memo(2, 5, 'micro'), memo(3, 2, 'short')];
+  assert.deepEqual(place(memos, [tick(8, 3, 'short'), tick(9, 1, 'day', true)]), [[9, 1], [8, 3]]);
+  assert.deepEqual(place([], [tick(9, 1, 'day', true)]), [[9, null]]);
 });

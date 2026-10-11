@@ -98,7 +98,9 @@ An image must be in Memo: `scripts/memo image <path> "<text>"` stores the file i
 A tick is a small action of the owner that comes back: each day, on some days of the week, or some days after the owner did it last. A tick is not a memo. It is one row with a check box in the Inbox, between the memos.
 
 - A tick has an impact and an effort, and it gets its place in the list from the same score as a memo. With an equal score, the memo goes first. A tick never goes above a memo with a due date in the next 2 days.
-- The place does not change through the day. A tick has no due date and is never late.
+- The place does not change through the day, with one exception: an overdue tick goes to the top of the list, above all memos, with the word "overdue".
+- A tick is overdue when the owner did not do it and did not skip it on the last day of its schedule, when a tick with `--every` came back before today, or when its time `--by` is past.
+- A skip is a decision of the owner. After a skip, the tick is not overdue on the next day.
 - A tick that the owner did not do goes away at the end of the day. There is no backlog.
 - "skip today" removes the row for today. "less" and "more" change the impact by 1, and the change stays for the next days.
 - A tick gets no tag and no toast, and it is not in the count of memos.
@@ -117,6 +119,7 @@ scripts/memo tick remove 2
 - `--days`: the tick is in the list only on these days of the week.
 - `--every <days>`: the tick comes back this many days after the owner did it. It stays in the list each day until the owner does it.
 - `--after HH:MM`: the tick is not in the list before this time.
+- `--by HH:MM`: the tick is overdue after this time of the day.
 - `memo tick log` shows one letter for each day: `d` for done, `s` for skipped, and a point for no mark. An agent uses it to propose a change to a tick that the owner skips often.
 
 The day of the ticks starts at 03:00, so a tick of the evening is still there after midnight. `MEMO_DAY_START` in `.env` gives a different hour. `MEMO_TZ` gives the time zone of the owner (for example `America/New_York`) when the server is in a different time zone.

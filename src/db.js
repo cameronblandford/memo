@@ -52,6 +52,7 @@ export function openDb(path = ':memory:') {
       days TEXT NOT NULL DEFAULT '',        -- 'mon,wed,fri'; empty: each day
       every INTEGER NOT NULL DEFAULT 1,     -- the tick comes back this many days after the owner did it
       after TEXT NOT NULL DEFAULT '',       -- 'HH:MM': not in the list before this time; empty: all day
+      by TEXT NOT NULL DEFAULT '',          -- 'HH:MM': overdue after this time; empty: no time limit
       active INTEGER NOT NULL DEFAULT 1,
       created TEXT NOT NULL
     );
@@ -63,6 +64,10 @@ export function openDb(path = ':memory:') {
       PRIMARY KEY (tick_id, day)
     );
   `);
+  // A database from before the overdue rule gets the column.
+  if (!db.prepare('PRAGMA table_info(ticks)').all().some((c) => c.name === 'by')) {
+    db.exec("ALTER TABLE ticks ADD COLUMN by TEXT NOT NULL DEFAULT ''");
+  }
   // A database from before the "new" tag gets the column. The memos that are in it count as seen.
   if (!db.prepare('PRAGMA table_info(memos)').all().some((c) => c.name === 'seen')) {
     db.exec('ALTER TABLE memos ADD COLUMN seen INTEGER NOT NULL DEFAULT 1');
