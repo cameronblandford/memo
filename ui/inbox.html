@@ -20,10 +20,11 @@
 </form>
 <main id="queue"></main>
 <p id="empty" class="dim" hidden>No memos need you now.</p>
+<div id="toasts" role="status" aria-live="polite"></div>
 <footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply.</footer>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages, themeVars } from '/ui/common.js';
-import { render as markdown } from '/ui/markdown.js';
+import { render as markdown, summary } from '/ui/markdown.js';
 
 const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
@@ -102,8 +103,45 @@ async function markSeen(id) {
     watch.unobserve(node);
     const tag = node.querySelector('.tag');
     if (tag) { tag.classList.add('gone'); setTimeout(() => tag.remove(), 1500); }
+    showToasts();
   } catch { /* the next look tries again */ }
 }
+
+// A toast for each memo that is new or updated and is not on the screen. A click on a toast goes to its memo.
+// A toast stays until the owner saw the memo or closed the toast. A memo whose text changes again gets a new toast.
+const MAX_TOASTS = 3;
+const toasts = document.getElementById('toasts');
+const closed = new Set(); // toast keys that the owner closed
+const toastKey = (memo) => `${memo.id}:${memo.seen}:${memo.text.length}`;
+const nodeOf = (id) => [...queue.children].find((n) => Number(n.dataset.id) === id);
+function onScreen(node) {
+  const r = node.getBoundingClientRect();
+  const shown = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
+  return shown >= Math.min(r.height, innerHeight) / 2;
+}
+function goTo(id) {
+  const node = nodeOf(id);
+  if (!node) return;
+  select(id);
+  node.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+}
+function showToasts() {
+  const open = memos.filter((m) => m.seen !== 1 && !closed.has(toastKey(m)) && nodeOf(m.id) && !onScreen(nodeOf(m.id)));
+  const nodes = open.slice(0, MAX_TOASTS).map((memo) => {
+    const node = el('div', { className: 'toast', title: 'Go to this memo' },
+      el('div', { className: 'body' },
+        el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'), el('span', { className: 'sender' }, memo.sender),
+        el('div', { className: 'line' }, summary(memo.text) || `Memo ${memo.id}`)),
+      button('×', () => { closed.add(toastKey(memo)); showToasts(); }, 'Close this toast'));
+    node.addEventListener('click', () => goTo(memo.id));
+    return node;
+  });
+  if (open.length > MAX_TOASTS) nodes.push(el('div', { className: 'toast more' }, `${open.length - MAX_TOASTS} more new or updated`));
+  toasts.replaceChildren(...nodes);
+}
+// A memo that comes onto the screen loses its toast.
+let scrollTimer;
+addEventListener('scroll', () => { clearTimeout(scrollTimer); scrollTimer = setTimeout(showToasts, 150); }, { passive: true });
 
 function render() {
   if (!memos.some((c) => c.id === selected)) selected = memos[0]?.id ?? null;
@@ -123,7 +161,7 @@ async function load() {
     // A new render makes each frame again and runs its script again, so render only when the list changed.
     const changed = JSON.stringify(next) !== JSON.stringify(memos) || !queue.children.length;
     memos = next;
-    if (changed) render();
+    if (changed) { render(); showToasts(); }
   } catch (error) { note(error.message); }
 }
 

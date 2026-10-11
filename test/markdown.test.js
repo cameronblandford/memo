@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, inline, frameDocument, checkBoxes, setCheckBox } from '../ui/markdown.js';
+import { parse, inline, frameDocument, checkBoxes, setCheckBox, summary } from '../ui/markdown.js';
 import { makeApp } from './helpers.js';
 
 test('plain text is one paragraph and keeps its line breaks', () => {
@@ -166,4 +166,16 @@ test('setCheckBox changes one box and nothing more', () => {
   assert.equal(setCheckBox(text, 2, true), '- [ ] one\n```\n- [ ] in code\n```\n* [x] two\n- [x] three');
   assert.equal(setCheckBox(text, 0, false), text);
   assert.equal(setCheckBox(text, 3, true), null);
+});
+
+test('the summary of a memo is its first line as plain text', () => {
+  assert.equal(summary('**Approve the deploy?** Reply `yes`.\nA second line.\n\nMore text.'), 'Approve the deploy? Reply yes.');
+  assert.equal(summary('- [ ] Rain jacket\n- [ ] Boots'), 'Rain jacket');
+  assert.equal(summary(''), '');
+});
+
+test('a long summary is cut', () => {
+  const s = summary('word '.repeat(60));
+  assert.equal(s.length <= 140, true);
+  assert.equal(s.endsWith('…'), true);
 });

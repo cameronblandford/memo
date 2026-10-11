@@ -127,6 +127,17 @@ export function parse(text, { html = false } = {}) {
   return blocks;
 }
 
+// One line of plain text for a toast: the first line of the first block that has text, with no Markdown marks.
+export function summary(text, max = 140) {
+  for (const block of parse(text)) {
+    const first = block.items?.[0];
+    const spans = block.spans || (Array.isArray(first) ? first : first?.spans) || [];
+    const line = spans.map((s) => s.text || s.alt || '').join('').split('\n')[0].replace(/\s+/g, ' ').trim();
+    if (line) return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+  }
+  return '';
+}
+
 // The check boxes of a text, in order: [{ n, on, line }]. The server uses this to change one box.
 export function checkBoxes(text) {
   return parse(text).flatMap((block) => (block.checks || []).filter(Boolean));
