@@ -125,19 +125,38 @@ function goTo(id) {
   select(id);
   node.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
 }
+// A toast node stays on the page while its memo needs it. Only a toast that is new gets a node, so only that
+// toast plays the animation.
+const toastNodes = new Map(); // toast key -> node
+let moreNode = null;
 function showToasts() {
   const open = memos.filter((m) => m.seen !== 1 && !closed.has(toastKey(m)) && nodeOf(m.id) && !onScreen(nodeOf(m.id)));
-  const nodes = open.slice(0, MAX_TOASTS).map((memo) => {
-    const node = el('div', { className: 'toast', title: 'Go to this memo' },
-      el('div', { className: 'body' },
-        el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'), el('span', { className: 'sender' }, memo.sender),
-        el('div', { className: 'line' }, summary(memo.text) || `Memo ${memo.id}`)),
-      button('×', () => { closed.add(toastKey(memo)); showToasts(); }, 'Close this toast'));
-    node.addEventListener('click', () => goTo(memo.id));
-    return node;
-  });
-  if (open.length > MAX_TOASTS) nodes.push(el('div', { className: 'toast more' }, `${open.length - MAX_TOASTS} more new or updated`));
-  toasts.replaceChildren(...nodes);
+  const shown = open.slice(0, MAX_TOASTS);
+  const keys = new Set(shown.map(toastKey));
+  for (const [key, node] of toastNodes) if (!keys.has(key)) { node.remove(); toastNodes.delete(key); }
+  let before = toasts.firstChild;
+  for (const memo of shown) {
+    const key = toastKey(memo);
+    let node = toastNodes.get(key);
+    if (!node) {
+      node = el('div', { className: 'toast', title: 'Go to this memo' },
+        el('div', { className: 'body' },
+          el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'), el('span', { className: 'sender' }, memo.sender),
+          el('div', { className: 'line' }, summary(memo.text) || `Memo ${memo.id}`)),
+        button('×', () => { closed.add(key); showToasts(); }, 'Close this toast'));
+      node.addEventListener('click', () => goTo(memo.id));
+      toastNodes.set(key, node);
+    }
+    // A node that is already at its place does not move. A move in the page would start its animation again.
+    if (node === before) before = before.nextSibling;
+    else toasts.insertBefore(node, before);
+  }
+  const more = open.length - shown.length;
+  if (more > 0) {
+    if (!moreNode) moreNode = el('div', { className: 'toast more' });
+    moreNode.textContent = `${more} more new or updated`;
+    if (toasts.lastChild !== moreNode) toasts.append(moreNode);
+  } else if (moreNode) { moreNode.remove(); moreNode = null; }
 }
 // A memo that comes onto the screen loses its toast.
 let scrollTimer;
