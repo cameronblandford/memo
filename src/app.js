@@ -10,6 +10,7 @@ import { dueSoon } from './rank.js';
 const UI = {
   'common.js': 'text/javascript; charset=utf-8',
   'markdown.js': 'text/javascript; charset=utf-8',
+  'keys.js': 'text/javascript; charset=utf-8',
   'common.css': 'text/css; charset=utf-8',
 };
 const LIAISON = 'liaison';

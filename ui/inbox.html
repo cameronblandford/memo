@@ -15,16 +15,17 @@
 <p id="note" role="status" hidden></p>
 <form id="capture">
   <select name="to" aria-label="Agent" hidden></select>
-  <input name="text" placeholder="Capture a task for the agent" autocomplete="off" required aria-label="Task">
+  <textarea name="text" rows="1" placeholder="Capture a task for the agent" autocomplete="off" required aria-label="Task"></textarea>
   <button>Send</button>
 </form>
 <main id="queue"></main>
 <p id="empty" class="dim" hidden>No memos need you now.</p>
 <div id="toasts" role="status" aria-live="polite"></div>
-<footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply.</footer>
+<footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line.</footer>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages, themeVars } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
+import { enterSends, fieldHeight } from '/ui/keys.js';
 
 const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
@@ -246,7 +247,20 @@ capture.addEventListener('submit', (event) => {
   run(async () => {
     await api('/api/send', { from: '__OWNER__', to, text: capture.elements.text.value });
     capture.elements.text.value = '';
+    grow();
   });
+});
+// The capture field grows with its text, to 40% of the window height.
+function grow() {
+  const field = capture.elements.text;
+  field.style.height = 'auto';
+  field.style.height = `${fieldHeight(field.scrollHeight + field.offsetHeight - field.clientHeight, window.innerHeight * 0.4)}px`;
+}
+capture.elements.text.addEventListener('input', grow);
+capture.elements.text.addEventListener('keydown', (event) => {
+  if (!enterSends(event, matchMedia('(pointer: coarse)').matches)) return;
+  event.preventDefault();
+  capture.requestSubmit();
 });
 
 const typing = () => ['TEXTAREA', 'INPUT', 'SELECT'].includes(document.activeElement?.tagName);

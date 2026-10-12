@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeApp, ROOT } from './helpers.js';
+import { enterSends, fieldHeight } from '../ui/keys.js';
 
 const get = async (path) => { const r = await makeApp().app.request(path); return { status: r.status, type: r.headers.get('content-type') || '', text: await r.text() }; };
 
@@ -67,4 +68,27 @@ test('the pages have a content rule that stops requests to other hosts', async (
 test('the Inbox links to the Agents page, and the Agents page links back', async () => {
   assert.match((await get('/inbox')).text, /href="\/agents"/);
   assert.match((await get('/agents')).text, /href="\/inbox"/);
+});
+
+test('the capture field has many lines and the page loads its key rules', async () => {
+  const inbox = (await get('/inbox')).text;
+  assert.match(inbox, /<textarea name="text"[^>]*aria-label="Task"/);
+  assert.doesNotMatch(inbox, /<input name="text"/);
+  assert.match((await get('/ui/keys.js')).type, /javascript/);
+});
+
+test('in the capture field Enter sends and Shift+Enter adds a line', () => {
+  const key = (more = {}) => ({ key: 'Enter', shiftKey: false, altKey: false, isComposing: false, ...more });
+  assert.equal(enterSends(key(), false), true);
+  assert.equal(enterSends(key({ shiftKey: true }), false), false);
+  assert.equal(enterSends(key({ altKey: true }), false), false);
+  assert.equal(enterSends(key({ isComposing: true }), false), false, 'Enter that confirms an input method text does not send');
+  assert.equal(enterSends(key({ key: 'a' }), false), false);
+  assert.equal(enterSends(key(), true), false, 'on a touch screen Enter adds a line');
+});
+
+test('the capture field grows to a limit', () => {
+  assert.equal(fieldHeight(40.2, 300), 41);
+  assert.equal(fieldHeight(900, 300), 300);
+  assert.equal(fieldHeight(-5, 300), 0);
 });

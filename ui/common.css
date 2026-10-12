@@ -16,6 +16,8 @@ form { display: flex; gap: .5rem; margin-bottom: 1rem; }
 input, textarea, select, button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: .5rem; padding: .5rem .65rem; }
 input, textarea { flex: 1; min-width: 0; width: 100%; }
 textarea { display: block; resize: vertical; margin: .5rem 0; }
+#capture { align-items: flex-end; }
+#capture textarea { margin: 0; resize: none; }
 button { cursor: pointer; white-space: nowrap; }
 button:hover { border-color: var(--accent); }
 .memo { background: var(--panel); border: 1px solid var(--line); border-radius: .75rem; padding: .85rem 1rem; margin-bottom: .75rem; }
