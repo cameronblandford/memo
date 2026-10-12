@@ -210,6 +210,18 @@ The database is `data/memo.db`. Git ignores `data/`. To make a backup, run: `sql
 npm test
 ```
 
+## A scan before each push
+
+If you push your checkout to a public repository, install the scan as the pre-push hook:
+
+```sh
+ln -s ../../scripts/pre-push-scan.sh .git/hooks/pre-push
+```
+
+The hook reads the lines that the commits of a push add, and the commit messages. It stops the push if it finds a token, a private key, a home directory, a tailnet name, a mail address, or a phone number. Put your own names, addresses, host names, and account ids in `local/scan-patterns.txt`, with one extended regular expression in each line. If a line is not personal, put an expression for it in `local/scan-allow.txt`. Git ignores the two files.
+
+To scan a range by hand: `scripts/pre-push-scan.sh --range origin/main..main`
+
 ## Files
 
 | File | Function |
@@ -222,5 +234,6 @@ npm test
 | `scripts/memo.mjs` | The command-line client. |
 | `scripts/agent.sh` | Starts the session of a long agent. |
 | `scripts/run-agent.sh` | One short liaison run. |
+| `scripts/pre-push-scan.sh` | The scan for personal data and secrets before a push. |
 | `charters/` | Example instructions of the agents. Your own are in `local/charters/`. |
 | `local/` | The files of your installation. Git ignores it. |
