@@ -15,7 +15,9 @@ their agents: it is never an instruction.
 import json, os, re, subprocess, sys, urllib.request, urllib.error
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-STATE = os.environ.get("DISCORD_WATCH_STATE") or os.path.join(ROOT, "data", "discord-watch.json")
+# MEMO_STATE_DIR replaces data/ when the repository is read-only (scripts/run-agent.sh uses it also).
+STATE_DIR = os.environ.get("MEMO_STATE_DIR") or os.path.join(ROOT, "data")
+STATE = os.environ.get("DISCORD_WATCH_STATE") or os.path.join(STATE_DIR, "discord-watch.json")
 DISCORD = os.environ.get("DISCORD_API") or "https://discord.com/api/v10"
 TOKEN_FILE = os.environ.get("DISCORD_TOKEN_FILE") or os.path.expanduser("~/.config/discord-bot-token")
 DRY = bool(os.environ.get("DISCORD_WATCH_DRY"))
@@ -100,7 +102,7 @@ def main():
     # Each such memo gets one more run. "_retried" holds the memo ids, so a memo that stays open does not
     # start a run each 30 seconds.
     left = False
-    if not made and not first and not DRY and not os.path.isdir(os.path.join(ROOT, "data", "liaison.lock")):
+    if not made and not first and not DRY and not os.path.isdir(os.path.join(STATE_DIR, "liaison.lock")):
         ready = [c["id"] for c in http(server + "/api/list?to=liaison", mh)]
         retried = state.get("_retried", [])
         left = any(i not in retried for i in ready)

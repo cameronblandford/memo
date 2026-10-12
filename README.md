@@ -50,6 +50,17 @@ To copy the token for a page (macOS), run `sed -n 's/^MEMO_TOKEN=//p' .env | tr 
 
 Open `http://127.0.0.1:3280/inbox`. Paste the token one time. The browser keeps it.
 
+### The pages on a phone, with no token
+
+A browser keeps the token for one address only. With [Tailscale Serve](https://tailscale.com/kb/1312/serve), the pages can work on your other devices with no token:
+
+1. Run `tailscale serve --bg --https=8443 http://127.0.0.1:3280`.
+2. In `.env`, set `MEMO_TAILSCALE_LOGIN` to the login name of your Tailscale account.
+3. In `.env`, set `MEMO_TAILSCALE_HOST` to the host name and port from step 1, for example `your-mac.your-tailnet.ts.net:8443`.
+4. Start the server again.
+
+Tailscale Serve tells the server which tailnet user sent a request. The server gives full access with no token only when that user is `MEMO_TAILSCALE_LOGIN`, the request came to `MEMO_TAILSCALE_HOST`, and the request is not from a page of a different site. `HOST` must stay `127.0.0.1`. A program that runs on the computer of the server can make such a request without Tailscale, so this setting gives no protection against a local program (a local program with your user account can read `.env` also).
+
 The Inbox shows the open memos to the owner. The order is:
 
 1. Memos with a due date in the next 2 days, or an earlier due date. The earliest date goes first.
@@ -68,6 +79,12 @@ The weights and the 2-day limit are in `src/rank.js`. `impact.md` tells the agen
 
 A memo that the owner did not see has the tag "new". A memo whose text changed after the owner saw it has the tag "updated". The tag goes away when the memo was on the screen for 2 seconds, and the server records this, so it is the same on each device.
 
+A memo with a tag that is not on the screen gets a toast in the corner of the page, with its first line. Select the toast to go to the memo. The toast goes away when you saw the memo or closed the toast. The page shows 3 toasts at most.
+
+A list item that starts with `[ ]` or `[x]` (for example `- [ ] Rain jacket`) shows as a check box. The owner can tick it on the Inbox page. The server saves the state in the text of the memo, so it is the same on each device, and the agent sees it when it reads the memo.
+
+The button "Note" sends the text of the reply field to the sender of the memo, and the memo stays open in the Inbox with its place in the queue. Use it to ask for a change or for more data. The notes show below the memo text, with the answers of the agent. `memo wait` gives the agent each memo with a note that it did not read. The agent answers with `memo note <id> --from <name> "<text>"`, changes the memo with `memo edit`, or runs `memo ack <id>` when no answer is necessary. "Reply" and "Close" end the memo as before.
+
 The buttons "More" and "Less" change the impact of a memo by 1. The server records each change. When an agent sends its next memo, `memo` shows the agent the last 5 changes.
 
 The field at the top sends a memo from the owner to the agent.
@@ -77,6 +94,39 @@ The Inbox shows memo text as Markdown (`ui/markdown.js`): headings, lists, table
 A block that starts with three backticks and `html` shows in a closed frame, for a chart or a graph. Scripts run in the frame, but the frame cannot read the page, the token, or the API, and it cannot load or send data on a network. The Inbox gives a frame only to memos that are not from `liaison` or `discord`.
 
 An image must be in Memo: `scripts/memo image <path> "<text>"` stores the file in `data/images/` and prints the Markdown line for the memo. The types are PNG, JPEG, GIF, and WebP, with a limit of 5 MB. The page gets the file with the token. An image address on the internet shows as a link, because the pages load nothing from the internet.
+
+## Ticks
+
+Ticks are an optional part, and they are off by default. To switch them on, set `MEMO_TICKS=1` in `.env` and start the server again.
+
+A tick is a small action of the owner that comes back: each day, on some days of the week, or some days after the owner did it last. A tick is not a memo. It is one row with a check box in the Inbox, between the memos.
+
+- A tick has an impact and an effort, and it gets its place in the list from the same score as a memo. With an equal score, the memo goes first. A tick never goes above a memo with a due date in the next 2 days.
+- The place does not change through the day, with one exception: an overdue tick goes to the top of the list, above all memos, with the word "prioritize". The page does not show the word "overdue".
+- A tick is overdue when the owner did not do it and did not skip it on the last day of its schedule, when a tick with `--every` came back before today, or when its time `--by` is past.
+- A skip is a decision of the owner. After a skip, the tick is not overdue on the next day.
+- A tick that the owner did not do goes away at the end of the day. There is no backlog.
+- "skip today" removes the row for today. "less" and "more" change the impact by 1, and the change stays for the next days.
+- A tick gets no tag and no toast, and it is not in the count of memos.
+- The limit is 5 active ticks (`MAX_ACTIVE` in `src/ticks.js`).
+
+```sh
+scripts/memo tick add --impact 3 --effort short Shower
+scripts/memo tick add --impact 2 --effort short --days mon,wed,fri --after 17:00 Stretch
+scripts/memo tick add --impact 2 --effort micro --every 7 -- Water the plants
+scripts/memo tick set 2 --impact 3
+scripts/memo tick list
+scripts/memo tick log 7
+scripts/memo tick remove 2
+```
+
+- `--days`: the tick is in the list only on these days of the week.
+- `--every <days>`: the tick comes back this many days after the owner did it. It stays in the list each day until the owner does it.
+- `--after HH:MM`: the tick is not in the list before this time.
+- `--by HH:MM`: the tick is overdue after this time of the day.
+- `memo tick log` shows one letter for each day: `d` for done, `s` for skipped, and a point for no mark. An agent uses it to propose a change to a tick that the owner skips often.
+
+The day of the ticks starts at 03:00, so a tick of the evening is still there after midnight. `MEMO_DAY_START` in `.env` gives a different hour. `MEMO_TZ` gives the time zone of the owner (for example `America/New_York`) when the server is in a different time zone.
 
 ## The Agents page
 
@@ -88,6 +138,27 @@ Open `http://127.0.0.1:3280/agents`. Each agent has one row: its state, its stat
 - The server remembers which agents the owner started. It starts them again when it starts.
 
 The agents are in `agents.json`. To add an agent, add an entry and a file `charters/<name>.md`, then restart the server.
+
+## An agent on a different computer
+
+A remote agent has its session on a different computer from the server. Use it when the server is always on (for example in the cloud) and some work needs a computer that is not always on.
+
+On the server:
+
+1. Add the agent to `agents.json` with the kind `remote`, for example `{ "name": "mac", "kind": "remote" }`.
+2. Add its charter, `charters/mac.md`.
+3. Start the server again.
+
+On the computer of the agent:
+
+1. Get this repository. No server runs there.
+2. Make `.env` with `MEMO_URL` (the address of the server) and `MEMO_TOKEN`, then run `chmod 600 .env`.
+3. Add the agent to `local/agents.json` with its `dir` and `model`, for example `{ "name": "mac", "kind": "remote", "dir": "~", "model": "claude-opus-5-5" }`.
+4. Run `scripts/remote-agent.sh mac`, or use the LaunchAgent `launchd/memo.remote.plist.example`.
+
+The script starts the session of the agent in the tmux session `memo-mac` when the server answers. Memos to the agent wait on the server while its computer is offline. The Agents page shows "Online" for 2 minutes after the last request of the agent. The server cannot start or stop the session; stop it on its computer with `tmux kill-session -t memo-mac`.
+
+The remote agent uses `MEMO_TOKEN`, which can do all operations. Give it only to a computer that you trust.
 
 ## Your own files: `local/`
 
@@ -110,6 +181,7 @@ scripts/memo list --to main
 scripts/memo reply 12 "Yes."
 scripts/memo close 12 "Done."
 scripts/memo edit 12 "A new text for an open memo."
+scripts/memo note 12 --from main "The price is $14 each month."
 scripts/memo ack 12
 scripts/memo status --as main "I update the README of the website."
 scripts/memo recap --as main "The README is complete. Next: the tests."
@@ -138,16 +210,30 @@ The database is `data/memo.db`. Git ignores `data/`. To make a backup, run: `sql
 npm test
 ```
 
+## A scan before each push
+
+If you push your checkout to a public repository, install the scan as the pre-push hook:
+
+```sh
+ln -s ../../scripts/pre-push-scan.sh .git/hooks/pre-push
+```
+
+The hook reads the lines that the commits of a push add, and the commit messages. It stops the push if it finds a token, a private key, a home directory, a tailnet name, a mail address, or a phone number. Put your own names, addresses, host names, and account ids in `local/scan-patterns.txt`, with one extended regular expression in each line. If a line is not personal, put an expression for it in `local/scan-allow.txt`. Git ignores the two files.
+
+To scan a range by hand: `scripts/pre-push-scan.sh --range origin/main..main`
+
 ## Files
 
 | File | Function |
 |---|---|
 | `src/rank.js` | The queue order. |
 | `src/memos.js` | The memo rules. |
+| `src/ticks.js` | The ticks: their schedule and their place in the queue. |
 | `src/agents.js` | Status, recap, and tmux control of the agents. |
 | `src/app.js` | The HTTP routes and the two tokens. |
 | `scripts/memo.mjs` | The command-line client. |
 | `scripts/agent.sh` | Starts the session of a long agent. |
 | `scripts/run-agent.sh` | One short liaison run. |
+| `scripts/pre-push-scan.sh` | The scan for personal data and secrets before a push. |
 | `charters/` | Example instructions of the agents. Your own are in `local/charters/`. |
 | `local/` | The files of your installation. Git ignores it. |

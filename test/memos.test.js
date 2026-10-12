@@ -237,3 +237,76 @@ test('seen changes only memos to the owner and refuses a bad list', () => {
   refuses(() => s.seen('1'), 400, 'ids');
   refuses(() => s.seen([1.5]), 400, 'ids');
 });
+
+test('check changes one check box of a memo to the owner and keeps the memo seen', () => {
+  const s = makeStore();
+  s.send({ from: 'main', to: 'cam', text: 'Pack:\n- [ ] Rain jacket\n- [ ] Charger', impact: 3, effort: 'short' });
+  s.seen([1]);
+  assert.equal(s.check(1, 1, true).text, 'Pack:\n- [ ] Rain jacket\n- [x] Charger');
+  assert.equal(s.get(1).seen, 1, 'a check box is not an update of the memo');
+  assert.equal(s.check(1, 1, false).text, 'Pack:\n- [ ] Rain jacket\n- [ ] Charger');
+  refuses(() => s.check(1, 2, true), 404, 'check box 2');
+  refuses(() => s.check(1, '0', true), 400, 'whole number');
+  refuses(() => s.check(1, 0, 'yes'), 400, 'true or false');
+  s.send({ from: 'cam', to: 'main', text: '- [ ] a task for the agent' });
+  refuses(() => s.check(2, 0, true), 400, 'Only a memo to cam');
+  s.close(1);
+  refuses(() => s.check(1, 0, true), 409, '');
+});
+
+// Notes: messages in an open memo to the owner. The memo stays open.
+function withMemo() {
+  const s = createStore(openDb(), { names: ['cam', 'discord', 'main', 'liaison'], owner: 'cam' });
+  const { memo } = s.send({ from: 'main', to: 'cam', text: 'Approve the plan?', impact: 3, effort: 'short' });
+  return { s, id: memo.id };
+}
+const refusesNote = (fn, status, part) => assert.throws(fn, (e) => e instanceof MemoError && e.status === status && e.message.includes(part));
+
+test('a note of the owner keeps the memo open and goes to the sender as news', () => {
+  const { s, id } = withMemo();
+  const m = s.note(id, 'cam', 'Add the price, please.');
+  assert.equal(m.state, 'open');
+  assert.deepEqual(m.notes.map((n) => [n.author, n.text, n.read]), [['cam', 'Add the price, please.', 0]]);
+  assert.equal(s.list('cam')[0].notes.length, 1);
+  const news = s.news('main');
+  assert.deepEqual(news.noted.map((c) => c.id), [id]);
+  assert.deepEqual(news.results, []);
+});
+
+test('an answer of the sender marks the note as read and shows the memo as updated', () => {
+  const { s, id } = withMemo();
+  s.seen([id]);
+  s.note(id, 'cam', 'Add the price, please.');
+  assert.equal(s.get(id).seen, 1, 'a note of the owner does not make the memo new for the owner');
+  const m = s.note(id, 'main', 'The price is $14.');
+  assert.deepEqual(m.notes.map((n) => [n.author, n.read]), [['cam', 1], ['main', 0]]);
+  assert.equal(m.seen, 2);
+  assert.deepEqual(s.news('main').noted, []);
+  assert.equal(s.note(id, 'cam', 'Thanks.').notes[1].read, 1);
+});
+
+test('ack of an open memo marks the notes of the owner as read, with no answer', () => {
+  const { s, id } = withMemo();
+  refusesNote(() => s.ack(id), 409, 'open');
+  s.note(id, 'cam', 'I read this later.');
+  assert.equal(s.ack(id).notes[0].read, 1);
+  assert.deepEqual(s.news('main').noted, []);
+  assert.equal(s.get(id).acked, 0);
+  refusesNote(() => s.ack(id), 409, 'open');
+});
+
+test('note refuses a wrong party, a closed memo, a memo to an agent, and a text that is too long', () => {
+  const { s, id } = withMemo();
+  refusesNote(() => s.note(id, 'liaison', 'x'), 403, 'Only cam and main');
+  refusesNote(() => s.note(id, 'cam', ''), 400, 'text');
+  refusesNote(() => s.note(id, 'cam', 'x'.repeat(4001)), 400, '4000');
+  const toAgent = s.send({ from: 'cam', to: 'main', text: 'Do it.' }).memo;
+  refusesNote(() => s.note(toAgent.id, 'cam', 'x'), 400, 'Only a memo to cam');
+  s.reply(id, 'Yes.');
+  refusesNote(() => s.note(id, 'cam', 'x'), 409, 'replied');
+});
+
+test('a memo with no notes has no notes field', () => {
+  const { s, id } = withMemo();
+  assert.equal('notes' in s.get(id), false);
+});

@@ -3,6 +3,8 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { MemoError } from './memos.js';
+import { placeTicks } from './ticks.js';
+import { dueSoon } from './rank.js';
 
 // The only files that /ui/<name> gives.
 const UI = {
@@ -14,7 +16,8 @@ const LIAISON = 'liaison';
 const digest = (s) => createHash('sha256').update(s).digest();
 const same = (a, b) => timingSafeEqual(digest(a), digest(b));
 
-export function createApp({ store, agents, images, root, token, liaisonToken, owner = 'owner' }) {
+// ticksOn: the ticks are an optional part. They are off unless MEMO_TICKS is set (see README.md).
+export function createApp({ store, agents, images, ticks, ticksOn = false, root, token, liaisonToken, owner = 'owner', tailscale, now = () => new Date() }) {
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -38,10 +41,22 @@ export function createApp({ store, agents, images, root, token, liaisonToken, ow
     return c.body(readFileSync(join(root, 'ui', file), 'utf8'), 200, { 'Content-Type': UI[file] });
   });
 
+  // Tailscale Serve sets Tailscale-User-Login and removes a value that the client sent. The owner then needs no token.
+  // The Host must be the Tailscale name, so a page that points its own name at this server (DNS rebinding) gets nothing.
+  // The Origin and Sec-Fetch-Site checks stop a page of a different site that sends a request from the browser of the owner.
+  const fromOwnerTailnet = (c) => {
+    if (!tailscale) return false;
+    const header = (name) => c.req.header(name) || '';
+    if (!same(header('Tailscale-User-Login'), tailscale.login) || header('Host') !== tailscale.host) return false;
+    if (header('Origin') && header('Origin') !== `https://${tailscale.host}`) return false;
+    return !header('Sec-Fetch-Site') || header('Sec-Fetch-Site') === 'same-origin';
+  };
+
   app.use('/api/*', async (c, next) => {
-    const given = (c.req.header('Authorization') || '').replace(/^Bearer /, '');
+    const given = (c.req.header('Authorization') || '').replace(/^Bearer\s*/, '');
     if (given && same(given, token)) c.set('role', 'full');
     else if (given && liaisonToken && same(given, liaisonToken)) c.set('role', LIAISON);
+    else if (!given && fromOwnerTailnet(c)) c.set('role', 'full');
     else throw new MemoError(401, 'The token is missing or wrong.');
     await next();
   });
@@ -78,10 +93,20 @@ export function createApp({ store, agents, images, root, token, liaisonToken, ow
     only(c, false);
     return c.json(store.edit(b.id, b.text));
   });
+  app.post('/api/note', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(store.note(b.id, b.from, b.text));
+  });
   app.post('/api/seen', async (c) => {
     const b = await body(c);
     only(c, false);
     return c.json(store.seen(b.ids));
+  });
+  app.post('/api/check', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(store.check(b.id, b.n, b.on));
   });
   app.post('/api/adjust', async (c) => {
     const b = await body(c);
@@ -125,12 +150,40 @@ export function createApp({ store, agents, images, root, token, liaisonToken, ow
   app.get('/api/news', (c) => {
     const who = c.req.query('for');
     only(c, who === LIAISON);
+    agents.contact(who);
     return c.json(store.news(who));
   });
   app.get('/api/agents', (c) => {
     only(c, false);
     return c.json(agents.list());
   });
+  // The Inbox: the open memos to the owner in their order, and the ticks of now with their places in that order.
+  app.get('/api/queue', (c) => {
+    only(c, false);
+    const memos = store.list(owner);
+    return c.json({ memos, ticks: ticksOn ? placeTicks(memos, ticks.due(), dueSoon(now())) : [] });
+  });
+  const needTicks = () => {
+    if (!ticksOn) throw new MemoError(400, 'Ticks are off. To use them, set MEMO_TICKS=1 in .env and start the server again.');
+  };
+  app.get('/api/ticks', (c) => {
+    only(c, false);
+    needTicks();
+    return c.json(c.req.query('log') ? ticks.log(Number(c.req.query('log'))) : ticks.list());
+  });
+  const tick = (path, fn) => app.post(`/api/tick/${path}`, async (c) => {
+    const b = await body(c);
+    only(c, false);
+    needTicks();
+    return c.json(fn(b));
+  });
+  tick('add', (b) => ticks.add(b));
+  tick('set', (b) => ticks.set(b.id, b));
+  tick('adjust', (b) => ticks.adjust(b.id, b.delta));
+  tick('remove', (b) => ticks.remove(b.id));
+  tick('done', (b) => ticks.done(b.id));
+  tick('skip', (b) => ticks.skip(b.id));
+  tick('undo', (b) => ticks.undo(b.id));
   // An image for a memo. The pages get it with the token, so a memo can show a screenshot and stay private.
   app.post('/api/image', async (c) => {
     only(c, false);

@@ -7,6 +7,7 @@ import { createStore } from './memos.js';
 import { createAgents, loadConfig, realTmux } from './agents.js';
 import { createApp } from './app.js';
 import { createImages } from './images.js';
+import { createTicks } from './ticks.js';
 import { localFile } from './paths.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -33,13 +34,28 @@ const db = openDb(dbPath);
 const store = createStore(db, {
   owner,
   names: [owner, 'discord', ...config.map((a) => a.name)],
-  forwardTo: config.filter((a) => a.kind === 'long').map((a) => a.name),
+  forwardTo: config.filter((a) => a.kind !== 'short').map((a) => a.name),
 });
 const agents = createAgents({ db, config, root, owner, tmux: realTmux(), counts: store.counts });
 const images = createImages(join(dirname(dbPath), 'images'));
-const app = createApp({ store, agents, images, root, token, liaisonToken, owner });
-
+// The day of the ticks starts at MEMO_DAY_START (an hour, default 3) in the time zone MEMO_TZ (default: that of this computer).
+const ticks = createTicks(db, { dayStart: Number(process.env.MEMO_DAY_START ?? 3), timeZone: process.env.MEMO_TZ || undefined });
 const hostname = process.env.HOST || '127.0.0.1';
+// Optional: the owner needs no token through Tailscale Serve. See README.md.
+const { MEMO_TAILSCALE_LOGIN: login, MEMO_TAILSCALE_HOST: tailscaleHost } = process.env;
+if (!login !== !tailscaleHost) {
+  console.error('Set MEMO_TAILSCALE_LOGIN and MEMO_TAILSCALE_HOST together, or set none of the two.');
+  process.exit(1);
+}
+// A request from a different computer could contain the Tailscale header, so only Tailscale Serve on this computer can be the source.
+if (login && !['127.0.0.1', '::1', 'localhost'].includes(hostname)) {
+  console.error('MEMO_TAILSCALE_LOGIN needs HOST=127.0.0.1. With a different HOST, a computer on the network can pretend to be Tailscale.');
+  process.exit(1);
+}
+const tailscale = login ? { login, host: tailscaleHost } : undefined;
+const ticksOn = ['1', 'true', 'on', 'yes'].includes(String(process.env.MEMO_TICKS || '').toLowerCase());
+const app = createApp({ store, agents, images, ticks, ticksOn, root, token, liaisonToken, owner, tailscale });
+
 const port = Number(process.env.PORT || 3280);
 serve({ fetch: app.fetch, hostname, port }, () => {
   console.log(`Memo listens on http://${hostname}:${port}`);

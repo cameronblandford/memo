@@ -20,15 +20,17 @@
 </form>
 <main id="queue"></main>
 <p id="empty" class="dim" hidden>No memos need you now.</p>
+<div id="toasts" role="status" aria-live="polite"></div>
 <footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply.</footer>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages, themeVars } from '/ui/common.js';
-import { render as markdown } from '/ui/markdown.js';
+import { render as markdown, summary } from '/ui/markdown.js';
 
 const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
 const drafts = new Map(); // memo id -> reply text that is not sent
 let memos = [];
+let ticks = []; // the small actions of now, each with `before`: the id of the memo below it
 let selected = null;
 
 function select(id) {
@@ -50,10 +52,15 @@ function view(memo) {
   const node = el('article', { className: memo.id === selected ? 'memo selected' : 'memo' },
     el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), facts, tag),
     // A memo that quotes Discord text gets no frame.
-    el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars() })),
+    el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: (n, on, box) => check(memo.id, n, on, box) })),
+    // The notes of the memo: messages between the owner and the sender while the memo is open.
+    memo.notes ? el('div', { className: 'notes' }, ...memo.notes.map((n) => el('div', { className: 'note' },
+      el('div', { className: 'who' }, el('b', {}, n.author), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
+      el('div', { className: 'md' }, ...markdown(n.text, el))))) : '',
     area,
     el('div', { className: 'row' },
-      button('Reply', () => reply(memo, area.value)),
+      button('Reply', () => reply(memo, area.value), 'Send the answer. The memo leaves your Inbox.'),
+      ['liaison', 'discord'].includes(memo.sender) ? '' : button('Note', () => addNote(memo, area.value), 'Send the text to the agent. The memo stays open in your Inbox.'),
       button('Close', () => close(memo), 'Close the memo. The text in the reply field goes with it.'),
       el('span', { className: 'spacer' }),
       button('Less', () => adjust(memo.id, -1), 'Decrease the impact by 1'),
@@ -62,6 +69,16 @@ function view(memo) {
   node.addEventListener('click', () => select(memo.id));
   if (tag) watch.observe(node);
   return node;
+}
+
+// A check box of a memo. The server changes the text of the memo, so the state is the same on each device.
+// The list on the page gets the new text, so the next load makes no new render.
+async function check(id, n, on, box) {
+  try {
+    const saved = await api('/api/check', { id, n, on });
+    const memo = memos.find((m) => m.id === id);
+    if (memo) memo.text = saved.text;
+  } catch (error) { box.checked = !on; note(error.message); }
 }
 
 // A memo counts as seen when half of it (or half of the screen, for a long memo) was on the screen for 2 seconds
@@ -92,8 +109,86 @@ async function markSeen(id) {
     watch.unobserve(node);
     const tag = node.querySelector('.tag');
     if (tag) { tag.classList.add('gone'); setTimeout(() => tag.remove(), 1500); }
+    showToasts();
   } catch { /* the next look tries again */ }
 }
+
+// A toast for each memo that is new or updated and is not on the screen. A click on a toast goes to its memo.
+// A toast stays until the owner saw the memo or closed the toast. A memo whose text changes again gets a new toast.
+const MAX_TOASTS = 3;
+const toasts = document.getElementById('toasts');
+const closed = new Set(); // toast keys that the owner closed
+const toastKey = (memo) => `${memo.id}:${memo.seen}:${memo.text.length}:${memo.notes?.length || 0}`;
+const nodeOf = (id) => [...queue.children].find((n) => Number(n.dataset.id) === id);
+function onScreen(node) {
+  const r = node.getBoundingClientRect();
+  const shown = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
+  return shown >= Math.min(r.height, innerHeight) / 2;
+}
+function goTo(id) {
+  const node = nodeOf(id);
+  if (!node) return;
+  select(id);
+  node.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+}
+// A toast node stays on the page while its memo needs it. Only a toast that is new gets a node, so only that
+// toast plays the animation.
+const toastNodes = new Map(); // toast key -> node
+let moreNode = null;
+function showToasts() {
+  const open = memos.filter((m) => m.seen !== 1 && !closed.has(toastKey(m)) && nodeOf(m.id) && !onScreen(nodeOf(m.id)));
+  const shown = open.slice(0, MAX_TOASTS);
+  const keys = new Set(shown.map(toastKey));
+  for (const [key, node] of toastNodes) if (!keys.has(key)) { node.remove(); toastNodes.delete(key); }
+  let before = toasts.firstChild;
+  for (const memo of shown) {
+    const key = toastKey(memo);
+    let node = toastNodes.get(key);
+    if (!node) {
+      node = el('div', { className: 'toast', title: 'Go to this memo' },
+        el('div', { className: 'body' },
+          el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'), el('span', { className: 'sender' }, memo.sender),
+          el('div', { className: 'line' }, summary(memo.text) || `Memo ${memo.id}`)),
+        button('×', () => { closed.add(key); showToasts(); }, 'Close this toast'));
+      node.addEventListener('click', () => goTo(memo.id));
+      toastNodes.set(key, node);
+    }
+    // A node that is already at its place does not move. A move in the page would start its animation again.
+    if (node === before) before = before.nextSibling;
+    else toasts.insertBefore(node, before);
+  }
+  const more = open.length - shown.length;
+  if (more > 0) {
+    if (!moreNode) moreNode = el('div', { className: 'toast more' });
+    moreNode.textContent = `${more} more new or updated`;
+    if (toasts.lastChild !== moreNode) toasts.append(moreNode);
+  } else if (moreNode) { moreNode.remove(); moreNode = null; }
+}
+// A memo that comes onto the screen loses its toast.
+let scrollTimer;
+addEventListener('scroll', () => { clearTimeout(scrollTimer); scrollTimer = setTimeout(showToasts, 150); }, { passive: true });
+
+// A tick is one small row between the memos. It is not a memo: no tag, no toast, and no place in the count.
+// A tick that the owner did stays as a done row until the next load, so the owner can take the mark back.
+function tickView(tick) {
+  const box = el('input', { type: 'checkbox' });
+  const node = el('div', { className: 'tick' },
+    el('label', {}, box, tick.text, tick.overdue ? el('span', { className: 'late' }, 'prioritize') : ''),
+    button('less', () => run(() => api('/api/tick/adjust', { id: tick.id, delta: -1 })), 'Move this tick down, also on the next days'),
+    button('more', () => run(() => api('/api/tick/adjust', { id: tick.id, delta: 1 })), 'Move this tick up, also on the next days'),
+    button('skip today', () => run(() => api('/api/tick/skip', { id: tick.id })), 'Remove this tick for today'));
+  box.addEventListener('change', async () => {
+    try {
+      await api(box.checked ? '/api/tick/done' : '/api/tick/undo', { id: tick.id });
+      node.classList.toggle('done', box.checked);
+      if (box.checked) doneTicks.set(tick.id, tick); else doneTicks.delete(tick.id);
+    } catch (error) { box.checked = !box.checked; note(error.message); }
+  });
+  if (doneTicks.has(tick.id)) { box.checked = true; node.classList.add('done'); }
+  node.dataset.tick = tick.id;
+  return node;
+}
+const doneTicks = new Map(); // ticks that the owner did on this page, for the done rows
 
 function render() {
   if (!memos.some((c) => c.id === selected)) selected = memos[0]?.id ?? null;
@@ -101,19 +196,25 @@ function render() {
   for (const timer of waiting.values()) clearTimeout(timer);
   waiting.clear();
   queue.replaceChildren(...memos.map(view));
+  for (const tick of ticks) queue.insertBefore(tickView(tick), tick.before === null ? null : nodeOf(tick.before) || null);
   loadImages(queue);
   document.getElementById('count').textContent = memos.length === 1 ? '1 memo' : `${memos.length} memos`;
-  document.getElementById('empty').hidden = memos.length > 0;
+  document.getElementById('empty').hidden = memos.length > 0 || ticks.length > 0;
 }
 
 async function load() {
   try {
-    const next = await api('/api/list?to=__OWNER__');
+    const data = await api('/api/queue');
     note('');
+    const next = data.memos;
+    // A done row stays at its place while the server does not give the tick again.
+    for (const t of data.ticks) doneTicks.delete(t.id);
+    const nextTicks = [...data.ticks, ...[...doneTicks.values()]];
     // A new render makes each frame again and runs its script again, so render only when the list changed.
-    const changed = JSON.stringify(next) !== JSON.stringify(memos) || !queue.children.length;
+    const changed = JSON.stringify([next, nextTicks]) !== JSON.stringify([memos, ticks]) || !queue.children.length;
     memos = next;
-    if (changed) render();
+    ticks = nextTicks;
+    if (changed) { render(); showToasts(); }
   } catch (error) { note(error.message); }
 }
 
@@ -124,12 +225,16 @@ const reply = (memo, text) => {
   if (!text.trim()) return note('Write a reply first.');
   return run(async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); });
 };
+const addNote = (memo, text) => {
+  if (!text.trim()) return note('Write a note first.');
+  return run(async () => { await api('/api/note', { id: memo.id, from: '__OWNER__', text }); drafts.delete(memo.id); });
+};
 const close = (memo) => run(async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); });
 const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta }));
 
 async function loadAgents() {
   try {
-    const long = (await api('/api/agents')).filter((a) => a.kind === 'long');
+    const long = (await api('/api/agents')).filter((a) => a.kind !== 'short');
     capture.elements.to.replaceChildren(...long.map((a) => el('option', { value: a.name }, a.name)));
     capture.elements.to.hidden = long.length < 2;
   } catch (error) { note(error.message); }

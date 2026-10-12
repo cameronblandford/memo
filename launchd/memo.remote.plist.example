@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- For a computer that runs a remote agent, with the Memo server on a different computer.
+     Replace each __ROOT__ with the full path of this repository and __NAME__ with the name of the agent.
+     See "An agent on a different computer" in README.md. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>memo.remote</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/sh</string><string>__ROOT__/scripts/remote-agent.sh</string><string>__NAME__</string></array>
+  <key>WorkingDirectory</key><string>__ROOT__</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <!-- The tmux session of the agent must continue when launchd restarts this script. -->
+  <key>AbandonProcessGroup</key><true/>
+  <key>StandardOutPath</key><string>__ROOT__/data/remote-agent.log</string>
+  <key>StandardErrorPath</key><string>__ROOT__/data/remote-agent.log</string>
+</dict>
+</plist>

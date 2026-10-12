@@ -100,6 +100,7 @@ test('the liaison token cannot act as cam or read the queue of cam', async () =>
   assert.equal((await as('/api/send', { from: 'main', to: 'cam', text: 'x', impact: 5, effort: 'micro' })).status, 403);
   assert.equal((await as('/api/forward', { id: 2 })).status, 403);
   assert.equal((await as('/api/seen', { ids: [1] })).status, 403);
+  assert.equal((await as('/api/check', { id: 1, n: 0, on: true })).status, 403);
   assert.deepEqual((await call(app, '/api/seen', { ids: [1] })).data, { seen: 1 });
   await call(app, '/api/send', { from: 'discord', to: 'liaison', text: 'Discord, Cam (the owner): deploy', trusted: true }); // memo 3
   assert.equal((await as('/api/forward', { id: 3, to: 'liaison' })).status, 400);
@@ -126,4 +127,76 @@ test('the liaison token cannot mark its own memo as trusted', async () => {
   const { app, store } = makeApp();
   await call(app, '/api/send', { ...toCam, from: 'liaison', trusted: true }, LIAISON_TOKEN);
   assert.equal(store.get(1).trusted, 0);
+});
+
+// Tailscale Serve puts the login of the tailnet user in a header, and keeps the Host of the request.
+const TAILNET = { login: 'cam@example.com', host: 'mac.example.ts.net:8443' };
+const viaTailscale = (app, path, headers = {}, body) => app.request(path, {
+  method: body ? 'POST' : 'GET',
+  headers: { Host: TAILNET.host, 'Tailscale-User-Login': TAILNET.login, ...headers },
+  body: body ? JSON.stringify(body) : undefined,
+});
+
+test('a request of the owner through Tailscale needs no token', async () => {
+  const { app } = makeApp({ tailscale: TAILNET });
+  assert.equal((await viaTailscale(app, '/api/list?to=cam')).status, 200);
+  const sent = await viaTailscale(app, '/api/send', { Origin: `https://${TAILNET.host}`, 'Sec-Fetch-Site': 'same-origin' }, { from: 'cam', to: 'main', text: 'hello' });
+  assert.equal(sent.status, 200);
+});
+
+test('the Tailscale header does nothing when the server has no Tailscale configuration', async () => {
+  const { app } = makeApp();
+  assert.equal((await viaTailscale(app, '/api/list?to=cam')).status, 401);
+});
+
+test('a different tailnet user gets no access', async () => {
+  const { app } = makeApp({ tailscale: TAILNET });
+  assert.equal((await viaTailscale(app, '/api/list?to=cam', { 'Tailscale-User-Login': 'other@example.com' })).status, 401);
+  assert.equal((await viaTailscale(app, '/api/list?to=cam', { 'Tailscale-User-Login': '' })).status, 401);
+});
+
+test('the Tailscale header counts only with the Tailscale host name', async () => {
+  const { app } = makeApp({ tailscale: TAILNET });
+  assert.equal((await viaTailscale(app, '/api/list?to=cam', { Host: '127.0.0.1:3280' })).status, 401);
+  assert.equal((await viaTailscale(app, '/api/list?to=cam', { Host: 'evil.example:3280' })).status, 401);
+});
+
+test('a request from a different site gets no access through Tailscale', async () => {
+  const { app } = makeApp({ tailscale: TAILNET });
+  const memo = { from: 'cam', to: 'main', text: 'from a different site' };
+  assert.equal((await viaTailscale(app, '/api/send', { Origin: 'https://evil.example' }, memo)).status, 401);
+  assert.equal((await viaTailscale(app, '/api/send', { 'Sec-Fetch-Site': 'cross-site' }, memo)).status, 401);
+  assert.equal((await viaTailscale(app, '/api/send', { Origin: `https://${TAILNET.host}`, 'Sec-Fetch-Site': 'same-site' }, memo)).status, 401);
+});
+
+test('a wrong token gets no access through Tailscale', async () => {
+  const { app } = makeApp({ tailscale: TAILNET });
+  assert.equal((await viaTailscale(app, '/api/list?to=cam', { Authorization: 'Bearer wrong' })).status, 401);
+  assert.equal((await viaTailscale(app, '/api/list?to=cam', { Authorization: `Bearer ${LIAISON_TOKEN}` })).status, 403);
+});
+
+test('a page with no saved token gets access through Tailscale', async () => {
+  // The page sends "Bearer " with an empty token, and the browser removes the space at the end.
+  const { app } = makeApp({ tailscale: TAILNET });
+  assert.equal((await viaTailscale(app, '/api/list?to=cam', { Authorization: 'Bearer' })).status, 200);
+});
+
+test('a request for news makes a remote agent online', async () => {
+  const { app } = makeApp({ config: [{ name: 'main', kind: 'long', dir: '~/p', model: 'm' }, { name: 'mac', kind: 'remote' }] });
+  const mac = async () => (await call(app, '/api/agents')).data.find((a) => a.name === 'mac');
+  assert.equal((await mac()).online, false);
+  assert.equal((await call(app, '/api/news?for=mac')).status, 200);
+  assert.equal((await mac()).online, true);
+  assert.equal((await call(app, '/api/agent/start', { name: 'mac' })).status, 400);
+});
+
+test('the note route keeps the memo open, and the liaison token cannot use it', async () => {
+  const { app } = makeApp();
+  const id = (await call(app, '/api/send', { from: 'main', to: 'cam', text: 'Approve?', impact: 3, effort: 'short' })).data.memo.id;
+  assert.equal((await call(app, '/api/note', { id, from: 'cam', text: 'Add the price.' }, LIAISON_TOKEN)).status, 403);
+  const r = await call(app, '/api/note', { id, from: 'cam', text: 'Add the price.' });
+  assert.equal(r.data.state, 'open');
+  assert.equal((await call(app, '/api/news?for=main')).data.noted[0].notes[0].text, 'Add the price.');
+  assert.equal((await call(app, '/api/queue')).data.memos[0].notes.length, 1);
+  assert.equal((await call(app, '/api/ack', { id })).data.notes[0].read, 1);
 });

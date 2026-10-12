@@ -8,6 +8,7 @@ const USAGE = `Usage:
   memo reply <id> <text>
   memo close <id> [<text>]
   memo edit <id> [--] <new text>
+  memo note <id> --from <name> [--] <text>
   memo ack <id> [<id> ...]
   memo forward <id> [--to <agent>]
   memo status --as <agent> <text>
@@ -16,6 +17,9 @@ const USAGE = `Usage:
   memo prompt --as <agent>
   memo image <path> [<text that describes the image>]
   memo wait --as <agent> [--hold <id>,<id>] [<max_minutes>]
+  memo tick add --impact 1-5 --effort <effort> [--days mon,wed,fri] [--every <days>] [--after HH:MM] [--by HH:MM] [--] <text>
+  memo tick set <id> [--impact ...] [--effort ...] [--days ...] [--every ...] [--after ...] [--by ...] [<new text>]
+  memo tick list | memo tick remove <id> | memo tick log [<days>]
 A memo to the owner needs --impact and --effort.`;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,14 +35,15 @@ function fileEnv() {
 }
 const file = fileEnv();
 const token = process.env.MEMO_TOKEN || file.MEMO_TOKEN;
-const base = process.env.MEMO_URL || `http://127.0.0.1:${file.PORT || 3280}`;
+// MEMO_URL is for a server on a different computer, for example https://memo.your-tailnet.ts.net
+const base = (process.env.MEMO_URL || file.MEMO_URL || `http://127.0.0.1:${file.PORT || 3280}`).replace(/\/+$/, '');
 
 function fail(message) {
   console.error(message);
   process.exit(1);
 }
 
-// soft: a server that does not answer gives null and not an exit. memo wait uses it.
+// soft: a server that does not answer, or an answer that is not from Memo, gives null and not an exit. memo wait uses it.
 async function call(path, body, { soft = false } = {}) {
   let r;
   try {
@@ -55,13 +60,15 @@ async function call(path, body, { soft = false } = {}) {
   let data;
   try { data = JSON.parse(raw); } catch { data = raw; }
   if (!r.ok) {
-    if (soft && r.status >= 500) return null;
+    // A failure with no JSON body is not from Memo: for example a different program that has the port
+    // while the server starts again. memo wait tries again.
+    if (soft && (r.status >= 500 || data === null || typeof data !== 'object')) return null;
     fail(data?.error || raw || `The request failed with status ${r.status}.`);
   }
   return data;
 }
 
-const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold'];
+const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by'];
 function parse(argv) {
   const flags = {};
   const rest = [];
@@ -94,7 +101,8 @@ function show(c) {
     + (c.impact != null ? `, impact ${c.impact}, effort ${c.effort}` : '')
     + (c.due ? `, due ${c.due}` : '')
     + (c.state !== 'open' ? `, ${c.state}` : '');
-  return `${head}\n${c.text}\n${c.reply ? `Reply: ${c.reply}\n` : ''}`;
+  const notes = (c.notes || []).map((n) => `Note from ${n.author}, ${when(n.created)}${n.read ? '' : ' (not read)'}: ${n.text}\n`).join('');
+  return `${head}\n${c.text}\n${notes}${c.reply ? `Reply: ${c.reply}\n` : ''}`;
 }
 
 const commands = {
@@ -119,6 +127,12 @@ const commands = {
     const id = memoId(rest[0]);
     await call('/api/edit', { id, text: rest.slice(1).join(' ') });
     console.log(`Memo ${id} has the new text.`);
+  },
+  // A message in an open memo to the owner. The memo stays open.
+  async note() {
+    const id = memoId(rest[0]);
+    await call('/api/note', { id, from: need('from'), text: rest.slice(1).join(' ') });
+    console.log(`Memo ${id} has the note. It stays open.`);
   },
   async close() {
     const id = memoId(rest[0]);
@@ -164,6 +178,30 @@ const commands = {
   async prompt() {
     process.stdout.write(await call(`/api/agent/prompt?name=${query(need('as'))}`));
   },
+  // A tick is a small action of the owner that comes back. See "Ticks" in README.md.
+  async tick() {
+    const [action, ...words] = rest;
+    const schedule = (t) => [t.days ? `on ${t.days}` : 'each day', t.every > 1 ? `${t.every} days after the last time` : '', t.after ? `after ${t.after}` : '', t.by ? `by ${t.by}` : ''].filter(Boolean).join(', ');
+    const line = (t) => `#${t.id} impact ${t.impact}, effort ${t.effort}, ${schedule(t)}: ${t.text}`;
+    const fields = (text) => ({
+      text: text || undefined, effort: flags.effort, days: flags.days, after: flags.after, by: flags.by,
+      impact: flags.impact === undefined ? undefined : Number(flags.impact),
+      every: flags.every === undefined ? undefined : Number(flags.every),
+    });
+    if (action === 'add') console.log(`The tick is added. ${line(await call('/api/tick/add', fields(words.join(' '))))}`);
+    else if (action === 'set') console.log(`The tick has the change. ${line(await call('/api/tick/set', { id: memoId(words[0]), ...fields(words.slice(1).join(' ')) }))}`);
+    else if (action === 'remove') { await call('/api/tick/remove', { id: memoId(words[0]) }); console.log(`Tick ${words[0]} is removed.`); }
+    else if (action === 'list') {
+      const ticks = await call('/api/ticks');
+      console.log(ticks.length ? ticks.map(line).join('\n') : 'No ticks are active.');
+    } else if (action === 'log') {
+      const days = words[0] === undefined ? 7 : Number(words[0]);
+      const ticks = await call(`/api/ticks?log=${query(days)}`);
+      if (!ticks.length) console.log('No ticks are active.');
+      // One letter for each day, the newest day last. d: done. s: skipped. A point: no mark.
+      for (const t of ticks) console.log(`${line(t)}\n  ${t.from} to ${t.to}: ${t.states.map((s) => (s === 'done' ? 'd' : s === 'skip' ? 's' : '.')).join('')}  done ${t.done}, skipped ${t.skipped}`);
+    } else fail(USAGE);
+  },
   async wait() {
     const who = need('as');
     const minutes = rest[0] === undefined ? 10080 : Number(rest[0]);
@@ -175,8 +213,14 @@ const commands = {
       const news = await call(`/api/news?for=${query(who)}`, undefined, { soft: true });
       if (news) {
         const fresh = news.to_you.filter((c) => !hold.includes(c.id));
-        if (fresh.length || news.results.length) {
+        const noted = news.noted || [];
+        if (fresh.length || news.results.length || noted.length) {
           if (fresh.length) console.log(`New memos to ${who}:\n\n${fresh.map(show).join('\n')}`);
+          if (noted.length) {
+            console.log(`Open memos from ${who} with a new note of the owner. Each memo stays open:\n\n${noted.map(show).join('\n')}`);
+            console.log(`Do what each note asks. Answer in the memo with: memo note <id> --from ${who} "<text>". To change the memo text, use memo edit.`);
+            console.log(`If no answer is necessary, run: memo ack ${noted.map((c) => c.id).join(' ')}\n`);
+          }
           if (news.results.length) {
             console.log(`Results of memos from ${who}:\n\n${news.results.map(show).join('\n')}`);
             console.log(`After you read the results, run: memo ack ${news.results.map((c) => c.id).join(' ')}`);

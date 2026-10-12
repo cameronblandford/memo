@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, inline, frameDocument } from '../ui/markdown.js';
+import { parse, inline, frameDocument, checkBoxes, setCheckBox, summary } from '../ui/markdown.js';
 import { makeApp } from './helpers.js';
 
 test('plain text is one paragraph and keeps its line breaks', () => {
@@ -143,4 +143,39 @@ test('the frame document puts the network rule before the memo HTML', () => {
 test('the frame document refuses theme text that is not a list of colors', () => {
   const doc = frameDocument('<p>hi</p>', '--ink:#111}</style><script>alert(1)</script>');
   assert.ok(!doc.includes('alert(1)'));
+});
+
+test('list items with a check box', () => {
+  const text = 'Pack:\n- [ ] Rain jacket\n- [x] **Hiking** shoes\n- A plain item\n\n1. [ ] a numbered item is not a box\n\n- [X] Charger';
+  const blocks = parse(text);
+  assert.deepEqual(blocks[1].checks, [{ n: 0, on: false, line: 1 }, { n: 1, on: true, line: 2 }, null]);
+  assert.deepEqual(blocks[1].items[1], [{ t: 'b', text: 'Hiking' }, { t: 'text', text: ' shoes' }]);
+  assert.equal(blocks[2].checks, undefined);
+  assert.deepEqual(blocks[3].checks, [{ n: 2, on: true, line: 7 }]);
+  assert.deepEqual(checkBoxes(text).map((b) => b.n), [0, 1, 2]);
+});
+
+test('a list with no check box has no checks, and a box in a code block is not a box', () => {
+  assert.equal(parse('- one\n- two')[0].checks, undefined);
+  assert.deepEqual(checkBoxes('```\n- [ ] in code\n```\n- [ ] real'), [{ n: 0, on: false, line: 3 }]);
+});
+
+test('setCheckBox changes one box and nothing more', () => {
+  const text = '- [ ] one\n```\n- [ ] in code\n```\n* [x] two\n- [ ] three';
+  assert.equal(setCheckBox(text, 1, false), '- [ ] one\n```\n- [ ] in code\n```\n* [ ] two\n- [ ] three');
+  assert.equal(setCheckBox(text, 2, true), '- [ ] one\n```\n- [ ] in code\n```\n* [x] two\n- [x] three');
+  assert.equal(setCheckBox(text, 0, false), text);
+  assert.equal(setCheckBox(text, 3, true), null);
+});
+
+test('the summary of a memo is its first line as plain text', () => {
+  assert.equal(summary('**Approve the deploy?** Reply `yes`.\nA second line.\n\nMore text.'), 'Approve the deploy? Reply yes.');
+  assert.equal(summary('- [ ] Rain jacket\n- [ ] Boots'), 'Rain jacket');
+  assert.equal(summary(''), '');
+});
+
+test('a long summary is cut', () => {
+  const s = summary('word '.repeat(60));
+  assert.equal(s.length <= 140, true);
+  assert.equal(s.endsWith('…'), true);
 });

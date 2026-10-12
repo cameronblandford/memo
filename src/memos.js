@@ -1,4 +1,5 @@
 import { EFFORTS, sortQueue } from './rank.js';
+import { setCheckBox } from '../ui/markdown.js';
 
 export class MemoError extends Error {
   constructor(status, message) {
@@ -8,6 +9,7 @@ export class MemoError extends Error {
 }
 
 const MAX_TEXT = 20000;
+const MAX_NOTE = 4000;
 
 // forwardTo: the names that memo forward can send to (the long agents).
 // owner: the name of the person who owns the queue (MEMO_OWNER). It is one of the names.
@@ -39,11 +41,18 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return v;
   }
 
+  // The notes of a memo, oldest first. A memo with no notes has no `notes` field, so an old client sees no change.
+  const notesOf = (id) => db.prepare('SELECT id, author, text, created, read FROM notes WHERE memo_id = ? ORDER BY id').all(id).map(plain);
+  function withNotes(row) {
+    const notes = notesOf(row.id);
+    return notes.length ? { ...row, notes } : { ...row };
+  }
+
   function get(id) {
     const n = Number(id);
     const row = Number.isInteger(n) ? db.prepare('SELECT * FROM memos WHERE id = ?').get(n) : undefined;
     if (!row) throw new MemoError(404, `No memo has the id ${id}.`);
-    return plain(row);
+    return withNotes(row);
   }
 
   function getOpen(id) {
@@ -105,6 +114,34 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return get(c.id);
   }
 
+  // A note is a message in an open memo to the owner. The memo stays open and keeps its place in the queue.
+  // The owner writes a note to ask for a change or for more data. The sender of the memo answers with a note.
+  // A new note marks the notes of the other party as read.
+  function note(id, from, text) {
+    const c = getOpen(id);
+    if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} can have notes.`);
+    if (from !== owner && from !== c.sender) throw new MemoError(403, `Only ${owner} and ${c.sender} can add a note to memo ${c.id}.`);
+    const body = checkText('text', text);
+    if (body.length > MAX_NOTE) throw new MemoError(400, `A note must have ${MAX_NOTE} characters or fewer.`);
+    db.prepare('INSERT INTO notes (memo_id, author, text, created) VALUES (?, ?, ?, ?)').run(c.id, from, body, ts());
+    db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author != ?').run(c.id, from);
+    // A note of the sender shows as "updated" in the Inbox, as a changed text does.
+    if (from !== owner) db.prepare('UPDATE memos SET seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?').run(c.id);
+    return get(c.id);
+  }
+  const unreadFromOwner = (id) => db.prepare('SELECT COUNT(*) AS n FROM notes WHERE memo_id = ? AND author = ? AND read = 0').get(id, owner).n;
+
+  // The owner changes one check box of a memo ("- [ ] text"). The text changes only in that box, and the memo stays seen.
+  function check(id, n, on) {
+    const c = getOpen(id);
+    if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} has check boxes that change.`);
+    if (!Number.isInteger(n) || typeof on !== 'boolean') throw new MemoError(400, 'n must be a whole number and on must be true or false.');
+    const text = setCheckBox(c.text, n, on);
+    if (text === null) throw new MemoError(404, `Memo ${c.id} has no check box ${n}.`);
+    db.prepare('UPDATE memos SET text = ? WHERE id = ?').run(text, c.id);
+    return get(c.id);
+  }
+
   // The Inbox calls this when a memo was on the screen of the owner. The "new" or "updated" tag of the memo goes away.
   function seen(ids) {
     if (!Array.isArray(ids) || !ids.length || ids.length > 500 || !ids.every((n) => Number.isInteger(n))) {
@@ -131,6 +168,11 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
 
   function ack(id) {
     const c = get(id);
+    // For an open memo, the sender marks the notes of the owner as read, when no answer is necessary.
+    if (c.state === 'open' && unreadFromOwner(c.id)) {
+      db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ?').run(c.id, owner);
+      return get(c.id);
+    }
     if (c.state === 'open') throw new MemoError(409, `Memo ${c.id} is open. It has no result.`);
     db.prepare('UPDATE memos SET acked = 1 WHERE id = ?').run(c.id);
     return get(c.id);
@@ -153,15 +195,20 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
 
   function list(to) {
     checkParty('to', to, names);
-    const rows = db.prepare(`SELECT * FROM memos WHERE recipient = ? AND state = 'open' ORDER BY id`).all(to).map(plain);
+    const rows = db.prepare(`SELECT * FROM memos WHERE recipient = ? AND state = 'open' ORDER BY id`).all(to).map(withNotes);
     return to === owner ? sortQueue(rows, now()) : rows;
   }
 
   function news(who) {
     const to_you = list(who);
     const results = db.prepare(`SELECT * FROM memos WHERE sender = ? AND state != 'open' AND acked = 0 ORDER BY id`)
-      .all(who).map(plain);
-    return { to_you, results };
+      .all(who).map(withNotes);
+    // Open memos of this sender that have a note of the owner that the sender did not read.
+    const noted = db.prepare(
+      `SELECT * FROM memos WHERE sender = ? AND state = 'open'
+       AND id IN (SELECT memo_id FROM notes WHERE author = ? AND read = 0) ORDER BY id`,
+    ).all(who, owner).map(withNotes);
+    return { to_you, results, noted };
   }
 
   function counts(name) {
@@ -172,5 +219,5 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     };
   }
 
-  return { get, send, reply, close, edit, seen, adjust, ack, forward, list, news, corrections, counts };
+  return { get, send, reply, close, edit, note, seen, check, adjust, ack, forward, list, news, corrections, counts };
 }

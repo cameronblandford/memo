@@ -1,0 +1,11 @@
+# Nothing of one installation goes into an image: no tokens, no memos, no work files.
+.env
+.env.*
+!.env.example
+data/
+work/
+local/
+fly.toml
+node_modules/
+.git/
+.superpowers/
