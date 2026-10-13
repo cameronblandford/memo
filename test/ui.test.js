@@ -131,10 +131,15 @@ test('an attached image is a Markdown line at the end of the text', () => {
   assert.deepEqual(imageNames(undefined), []);
 });
 
-test('the capture form does not send again while a memo goes out', async () => {
+test('the send buttons show a spinner, then a check mark, and do not send two times', async () => {
   const inbox = (await get('/inbox')).text;
-  assert.match(inbox, /if \(sending\) return;/);
-  assert.match(inbox, /finally \{ sending = false; \}/);
+  assert.match(inbox, /send\(sendButton, async \(\) => \{/);
+  assert.match(inbox, /button\('Reply', \(b\) => reply\(memo, area\.value, b\)/);
+  assert.match((await get('/ui/feedback.js')).type, /javascript/);
+  const css = (await get('/ui/common.css')).text;
+  assert.match(css, /button\.sending::after/);
+  assert.match(css, /button\.sent::after/);
+  assert.match(css, /prefers-reduced-motion: reduce/);
 });
 
 test('a check box with the focus does not stop the keys and the refresh', async () => {

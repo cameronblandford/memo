@@ -27,6 +27,7 @@
 import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
 import { enterSends, fieldHeight } from '/ui/keys.js';
+import { withFeedback } from '/ui/feedback.js';
 
 const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
@@ -49,6 +50,11 @@ function view(memo) {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); reply(memo, area.value); }
   });
   const thumbs = el('div', { className: 'thumbs', hidden: true });
+  const sendButtons = [
+    button('Reply', (b) => reply(memo, area.value, b), 'Send the answer. The memo leaves your Inbox.'),
+    ...(['liaison', 'discord'].includes(memo.sender) ? [] : [button('Note', (b) => addNote(memo, area.value, b), 'Send the text to the agent. The memo stays open in your Inbox.')]),
+    button('Close', (b) => close(memo, b), 'Close the memo. The text in the reply field goes with it.'),
+  ];
   const facts = ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}`;
   // seen 0: the owner did not see the memo. seen 2: its text changed after the owner saw it.
   const tag = memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new');
@@ -60,12 +66,11 @@ function view(memo) {
     memo.notes ? el('div', { className: 'notes' }, ...memo.notes.map((n) => el('div', { className: 'note' },
       el('div', { className: 'who' }, el('b', {}, n.author), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
       el('div', { className: 'md' }, ...markdown(n.text, el))))) : '',
-    attach(area, thumbs),
+    // The buttons that send are off while an image goes to the server.
+    attach(area, thumbs, (busy) => { for (const b of sendButtons) b.disabled = busy; }),
     thumbs,
     el('div', { className: 'row' },
-      button('Reply', () => reply(memo, area.value), 'Send the answer. The memo leaves your Inbox.'),
-      ['liaison', 'discord'].includes(memo.sender) ? '' : button('Note', () => addNote(memo, area.value), 'Send the text to the agent. The memo stays open in your Inbox.'),
-      button('Close', () => close(memo), 'Close the memo. The text in the reply field goes with it.'),
+      ...sendButtons,
       el('span', { className: 'spacer' }),
       button('Less', () => adjust(memo.id, -1), 'Decrease the impact by 1'),
       button('More', () => adjust(memo.id, 1), 'Increase the impact by 1')));
@@ -247,15 +252,28 @@ async function load() {
 async function run(action) {
   try { await action(); await load(); } catch (error) { note(error.message); }
 }
-const reply = (memo, text) => {
+// Sends with a sign on the button: a spinner while the request is out, then a check mark, then the new list.
+// A failure shows the error and keeps the text and the images in the field.
+async function send(buttonNode, action) {
+  // The other buttons of the same memo are off for that time: a Close during a Reply must not send a second request.
+  const others = [...(buttonNode.parentNode?.querySelectorAll('button') || [])].filter((b) => b !== buttonNode && !b.disabled);
+  for (const b of others) b.disabled = true;
+  try {
+    if (await withFeedback(buttonNode, async () => { await action(); note(''); })) await load();
+  } catch (error) {
+    // The browser gives a TypeError when the request did not get to the server.
+    note(error instanceof TypeError ? 'Not sent: the server did not answer. Your text is still in the field. Try again.' : error.message);
+  } finally { for (const b of others) b.disabled = false; }
+}
+const reply = (memo, text, buttonNode) => {
   if (!text.trim()) return note('Write a reply first.');
-  return run(async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); });
+  return send(buttonNode, async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); });
 };
-const addNote = (memo, text) => {
+const addNote = (memo, text, buttonNode) => {
   if (!text.trim()) return note('Write a note first.');
-  return run(async () => { await api('/api/note', { id: memo.id, from: '__OWNER__', text }); drafts.delete(memo.id); });
+  return send(buttonNode, async () => { await api('/api/note', { id: memo.id, from: '__OWNER__', text }); drafts.delete(memo.id); });
 };
-const close = (memo) => run(async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); });
+const close = (memo, buttonNode) => send(buttonNode, async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); });
 const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta }));
 
 async function loadAgents() {
@@ -265,20 +283,18 @@ async function loadAgents() {
     capture.elements.to.hidden = long.length < 2;
   } catch (error) { note(error.message); }
 }
-let sending = false; // a second Enter or a second click while a memo goes out must not send the text again
-capture.addEventListener('submit', async (event) => {
+// The Send button is off while a memo goes out, so a second Enter or a second click does not send the text again.
+const sendButton = capture.querySelector('button');
+capture.addEventListener('submit', (event) => {
   event.preventDefault();
-  if (sending) return;
   const to = capture.elements.to.value;
   if (!to) return note('The list of agents did not load. Load the page again.');
-  sending = true;
-  try {
-    await run(async () => {
-      await api('/api/send', { from: '__OWNER__', to, text: capture.elements.text.value });
-      capture.elements.text.value = '';
-      capture.elements.text.dispatchEvent(new Event('input'));
-    });
-  } finally { sending = false; }
+  send(sendButton, async () => {
+    await api('/api/send', { from: '__OWNER__', to, text: capture.elements.text.value });
+    // The server has the memo: the field is empty at the moment that the check mark shows.
+    capture.elements.text.value = '';
+    capture.elements.text.dispatchEvent(new Event('input'));
+  });
 });
 // The capture field grows with its text, to 40% of the window height.
 function grow() {
@@ -287,7 +303,7 @@ function grow() {
   field.style.height = `${fieldHeight(field.scrollHeight + field.offsetHeight - field.clientHeight, window.innerHeight * 0.4)}px`;
 }
 capture.elements.text.addEventListener('input', grow);
-attach(capture.elements.text, capture.querySelector('.thumbs'));
+attach(capture.elements.text, capture.querySelector('.thumbs'), (busy) => { sendButton.disabled = busy; });
 capture.elements.text.addEventListener('keydown', (event) => {
   if (!enterSends(event, matchMedia('(pointer: coarse)').matches)) return;
   event.preventDefault();
