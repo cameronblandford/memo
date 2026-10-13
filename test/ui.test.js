@@ -83,6 +83,8 @@ test('in the capture field Enter sends and Shift+Enter adds a line', () => {
   assert.equal(enterSends(key({ shiftKey: true }), false), false);
   assert.equal(enterSends(key({ altKey: true }), false), false);
   assert.equal(enterSends(key({ isComposing: true }), false), false, 'Enter that confirms an input method text does not send');
+  assert.equal(enterSends(key({ keyCode: 229 }), false), false, 'Safari: the Enter after the composition ends has the key code 229');
+  assert.equal(enterSends(key({ repeat: true }), false), false, 'a held key does not send again');
   assert.equal(enterSends(key({ key: 'a' }), false), false);
   assert.equal(enterSends(key(), true), false, 'on a touch screen Enter adds a line');
 });
@@ -91,4 +93,10 @@ test('the capture field grows to a limit', () => {
   assert.equal(fieldHeight(40.2, 300), 41);
   assert.equal(fieldHeight(900, 300), 300);
   assert.equal(fieldHeight(-5, 300), 0);
+});
+
+test('the capture form does not send again while a memo goes out', async () => {
+  const inbox = (await get('/inbox')).text;
+  assert.match(inbox, /if \(sending\) return;/);
+  assert.match(inbox, /finally \{ sending = false; \}/);
 });
