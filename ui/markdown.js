@@ -87,7 +87,8 @@ export function parse(text, { html = false } = {}) {
       flush();
       const body = [m[1]];
       while (i + 1 < lines.length && (m = lines[i + 1].match(/^>\s?(.*)$/))) { body.push(m[1]); i++; }
-      blocks.push({ type: 'quote', spans: inline(body.join('\n')) });
+      // text: the quote as it was written, with no "> " marks, for the copy button.
+      blocks.push({ type: 'quote', spans: inline(body.join('\n')), text: body.join('\n') });
     } else if (/^\s*[-*]\s+\S/.test(line) || /^\s*\d+[.)]\s+\S/.test(line)) {
       flush();
       const type = /^\s*\d/.test(line) ? 'ol' : 'ul';
@@ -152,7 +153,59 @@ export function setCheckBox(text, n, on) {
   return lines.join('\n');
 }
 
+// Puts a text on the clipboard and gives true if that worked. The clipboard interface needs a secure page and,
+// in some browsers, permission; where it is not there or fails, a hidden field and the old copy command do the work.
+// env: the window, for tests.
+export async function copyText(text, env = globalThis) {
+  try {
+    if (env.navigator?.clipboard?.writeText) {
+      await env.navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* try the old way */ }
+  const doc = env.document;
+  if (!doc?.execCommand) return false;
+  const field = doc.createElement('textarea');
+  field.value = text;
+  field.setAttribute('readonly', '');
+  field.style.position = 'fixed';
+  field.style.opacity = '0';
+  doc.body.append(field);
+  field.select();
+  let ok = false;
+  try { ok = doc.execCommand('copy'); } catch { ok = false; }
+  field.remove();
+  return ok;
+}
+
+export const COPIED_MS = 1200; // how long the check mark shows
+
+// A small icon in the corner that copies `text` exactly as it is in the memo. The style sheet draws the icon
+// (two sheets), and a check mark for a moment after the copy. The words are for a screen reader and for the pointer.
+function copyButton(el, text) {
+  const button = el('button', { type: 'button', className: 'copy', title: 'Copy' });
+  button.setAttribute('aria-label', 'Copy this text');
+  let timer;
+  button.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    const ok = await copyText(text);
+    button.classList.toggle('copied', ok);
+    button.classList.toggle('failed', !ok);
+    button.title = ok ? 'Copied' : 'Not copied';
+    button.setAttribute('aria-label', ok ? 'Copied' : 'The text was not copied');
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      button.classList.remove('copied');
+      button.classList.remove('failed');
+      button.title = 'Copy';
+      button.setAttribute('aria-label', 'Copy this text');
+    }, COPIED_MS);
+  });
+  return button;
+}
+
 // el: the element function of common.js. Returns the list of nodes for the text.
+// A code block and a quote get a copy button. Inline code and the frame of an html block do not.
 // options.onCheck(n, on): called when the reader changes a check box. Without it the boxes are read-only.
 // options.html: show html blocks in a frame. options.vars: the page colors for the frame.
 export function render(text, el, { html = false, vars = '', onCheck = null } = {}) {
@@ -181,7 +234,8 @@ export function render(text, el, { html = false, vars = '', onCheck = null } = {
       frame.srcdoc = frameDocument(block.text, vars);
       return frame;
     }
-    if (block.type === 'pre') return el('pre', {}, el('code', {}, block.text));
+    // The icon is in the top right corner of the box. The code keeps space at the right of its first lines for it.
+    if (block.type === 'pre') return el('div', { className: 'code' }, copyButton(el, block.text), el('pre', {}, el('code', {}, block.text)));
     if (block.type === 'table') {
       const row = (tag, list) => el('tr', {}, ...list.map((spans) => el(tag, {}, ...spans.map(node))));
       // The wrapper lets a wide table scroll inside the memo on a phone.
@@ -197,6 +251,7 @@ export function render(text, el, { html = false, vars = '', onCheck = null } = {
       }));
     }
     if (block.type === 'ul' || block.type === 'ol') return el(block.type, {}, ...block.items.map((spans) => el('li', {}, ...spans.map(node))));
-    return el({ p: 'p', h: 'h3', quote: 'blockquote' }[block.type], {}, ...block.spans.map(node));
+    if (block.type === 'quote') return el('blockquote', {}, copyButton(el, block.text), ...block.spans.map(node));
+    return el({ p: 'p', h: 'h3' }[block.type], {}, ...block.spans.map(node));
   });
 }
