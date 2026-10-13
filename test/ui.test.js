@@ -135,6 +135,11 @@ test('the send buttons show a spinner, then a check mark, and do not send two ti
   const inbox = (await get('/inbox')).text;
   assert.match(inbox, /send\(sendButton, async \(\) => \{/);
   assert.match(inbox, /button\('Reply', \(b\) => reply\(memo, area\.value, b\)/);
+  // Each caller of reply, addNote, and close gives a button: the key Command-Return gives the Reply button.
+  assert.match(inbox, /reply\(memo, area\.value, sendButtons\[0\]\)/);
+  assert.doesNotMatch(inbox, /reply\(memo, area\.value\)/);
+  assert.doesNotMatch(inbox, /addNote\(memo, area\.value\)/);
+  assert.doesNotMatch(inbox, /close\(memo\)/);
   assert.match((await get('/ui/feedback.js')).type, /javascript/);
   const css = (await get('/ui/common.css')).text;
   assert.match(css, /button\.sending::after/);

@@ -44,3 +44,10 @@ test('a send that fails gives the button back at once, with no check mark', asyn
   // The next try works.
   assert.equal(await withFeedback(button, async () => {}, { wait: () => Promise.resolve() }), true);
 });
+
+test('with no button the action still runs, so a caller with no button cannot lose a memo', async () => {
+  let calls = 0;
+  assert.equal(await withFeedback(undefined, async () => { calls += 1; }), true);
+  assert.equal(calls, 1);
+  await assert.rejects(withFeedback(null, async () => { throw new Error('refused'); }), /refused/);
+});

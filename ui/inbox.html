@@ -47,7 +47,8 @@ function view(memo) {
   area.addEventListener('input', () => drafts.set(memo.id, area.value));
   area.addEventListener('focus', () => select(memo.id));
   area.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); reply(memo, area.value); }
+    // Command-Return sends the reply, with the same signs on the Reply button as a click.
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.repeat) { event.preventDefault(); reply(memo, area.value, sendButtons[0]); }
   });
   const thumbs = el('div', { className: 'thumbs', hidden: true });
   const sendButtons = [
@@ -256,7 +257,7 @@ async function run(action) {
 // A failure shows the error and keeps the text and the images in the field.
 async function send(buttonNode, action) {
   // The other buttons of the same memo are off for that time: a Close during a Reply must not send a second request.
-  const others = [...(buttonNode.parentNode?.querySelectorAll('button') || [])].filter((b) => b !== buttonNode && !b.disabled);
+  const others = [...(buttonNode?.parentNode?.querySelectorAll('button') || [])].filter((b) => b !== buttonNode && !b.disabled);
   for (const b of others) b.disabled = true;
   try {
     if (await withFeedback(buttonNode, async () => { await action(); note(''); })) await load();

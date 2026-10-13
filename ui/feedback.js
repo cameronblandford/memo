@@ -7,7 +7,9 @@ export const SENT_MS = 900; // how long the check mark shows
 // the action, the class `sent` shows a check mark for a short time. If the action fails, the button
 // goes back at once and the error goes to the caller. Gives false, with no action, for a button that
 // is off: a second tap must not send the text again.
+// With no button (a caller that has none), the action runs with no signs.
 export async function withFeedback(button, action, { wait = (ms) => new Promise((done) => setTimeout(done, ms)), hold = SENT_MS } = {}) {
+  if (!button) { await action(); return true; }
   if (button.disabled) return false;
   button.disabled = true;
   button.classList.add('sending');
