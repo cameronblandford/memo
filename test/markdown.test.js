@@ -185,6 +185,8 @@ function fakeEl(tag, props = {}, ...children) {
   const node = { tag, ...props, children, handlers: {}, classes: new Set() };
   node.addEventListener = (name, fn) => { node.handlers[name] = fn; };
   node.classList = { toggle: (c, on) => (on ? node.classes.add(c) : node.classes.delete(c)), remove: (c) => node.classes.delete(c) };
+  node.attributes = {};
+  node.setAttribute = (name, value) => { node.attributes[name] = value; };
   return node;
 }
 const find = (nodes, test, out = []) => {
@@ -205,7 +207,7 @@ test('a code block and a quote get a copy button; inline code, a table, and a li
   assert.equal(find([nodes[0]], (n) => n.className === 'copy').length, 0, 'no button for inline code');
 });
 
-test('the copy button copies the exact text of the block and then says Copied', async () => {
+test('the copy icon copies the exact text of the block and then shows a check mark', async () => {
   const copied = [];
   const before = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async (t) => { copied.push(t); } } }, configurable: true });
@@ -216,8 +218,9 @@ test('the copy button copies the exact text of the block and then says Copied', 
     let stopped = false;
     await codeButton.handlers.click({ stopPropagation: () => { stopped = true; } });
     assert.deepEqual(copied, [raw], 'no change to the Markdown in the block, and no new line at the end');
-    assert.equal(codeButton.textContent, 'Copied');
-    assert.ok(codeButton.classes.has('copied'));
+    assert.ok(codeButton.classes.has('copied'), 'the icon becomes a check mark');
+    assert.equal(codeButton.attributes['aria-label'], 'Copied');
+    assert.deepEqual(codeButton.children, [], 'the button is an icon, with no word in it');
     assert.ok(stopped, 'a tap on the button does not select the memo');
     await quoteButton.handlers.click({ stopPropagation() {} });
     assert.equal(copied[1], 'Dear Sam,\nthe *draft* is ready.', 'the quote with no "> " marks');
@@ -248,4 +251,6 @@ test('a quote contains its copy button, so a quote of one line does not let the 
   const { readFileSync } = await import('node:fs');
   const css = readFileSync(new URL('../ui/common.css', import.meta.url), 'utf8');
   assert.match(css, /\.md blockquote:has\(\.copy\) \{ display: flow-root; \}/);
+  // The copy control is an icon with no frame.
+  assert.match(css, /\.md \.copy \{[^}]*border: 0; background: none;/);
 });

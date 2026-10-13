@@ -85,15 +85,24 @@ button:hover { border-color: var(--accent); }
 .md code { font: .88em ui-monospace, Menlo, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: .3rem; padding: .05rem .3rem; }
 .md pre { margin: .5rem 0; padding: .6rem .75rem; background: var(--bg); border: 1px solid var(--line); border-radius: .5rem; overflow-x: auto; }
 .md pre code { border: 0; padding: 0; background: none; }
-/* The copy button: in the top right corner of a code block, above the first line, and at the right of a quote. */
+/* The copy icon: two sheets, drawn here, in the top right corner of a code block and at the right of a quote.
+   It has no frame. The tap area is larger than the drawing, for a thumb. A check mark shows after the copy. */
 .md .code { position: relative; margin: .5rem 0; }
-.md .code pre { margin: 0; padding-top: 2.5rem; }
-.md .copy { min-width: 3.4rem; min-height: 1.9rem; padding: .2rem .6rem; border-radius: .4rem; color: var(--dim); font-size: .8rem; white-space: nowrap; }
-.md .code .copy { position: absolute; top: .3rem; right: .3rem; }
-/* flow-root: the quote contains the button, so a quote of one line is as high as the button and nothing goes out of it. */
+.md .code pre { margin: 0; padding-top: 2.1rem; }
+.md .copy { position: relative; width: 2.2rem; height: 2.2rem; padding: 0; border: 0; background: none; color: var(--dim); opacity: .75; }
+.md .copy:hover { color: var(--accent); opacity: 1; }
+.md .copy::before, .md .copy::after { content: ""; position: absolute; width: .62rem; height: .78rem; box-sizing: border-box; border: 1.5px solid currentColor; border-radius: .15rem; }
+.md .copy::before { left: .68rem; top: .58rem; }
+.md .copy::after { left: .9rem; top: .82rem; background: var(--bg); }
+.md blockquote .copy::after { background: var(--panel); }
+.md .code .copy { position: absolute; top: 0; right: 0; }
+/* flow-root: the quote contains the icon, so a quote of one line is as high as the icon and nothing goes out of it. */
 .md blockquote:has(.copy) { display: flow-root; }
-.md blockquote .copy { float: right; margin: 0 0 .25rem .5rem; }
-.md .copy.copied { color: var(--accent); border-color: var(--accent); }
+.md blockquote .copy { float: right; margin: -.35rem -.3rem 0 .3rem; }
+.md .copy.copied { color: var(--accent); opacity: 1; }
+.md .copy.copied::before { display: none; }
+.md .copy.copied::after { left: .9rem; top: .6rem; width: .42rem; height: .8rem; background: none; border-width: 0 2.5px 2.5px 0; border-radius: 0; transform: rotate(45deg); }
+.md .copy.failed { color: var(--warn); opacity: 1; }
 .md a { color: var(--accent); }
 .md .frame { display: block; width: 100%; height: 12rem; margin: .5rem 0; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel); }
 .md img { display: block; max-width: 100%; max-height: 28rem; margin: .5rem 0; border: 1px solid var(--line); border-radius: .5rem; cursor: zoom-in; }

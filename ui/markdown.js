@@ -178,19 +178,28 @@ export async function copyText(text, env = globalThis) {
   return ok;
 }
 
-export const COPIED_MS = 1200; // how long the button says "Copied"
+export const COPIED_MS = 1200; // how long the check mark shows
 
-// A small button that copies `text` exactly as it is in the memo.
+// A small icon in the corner that copies `text` exactly as it is in the memo. The style sheet draws the icon
+// (two sheets), and a check mark for a moment after the copy. The words are for a screen reader and for the pointer.
 function copyButton(el, text) {
-  const button = el('button', { type: 'button', className: 'copy', title: 'Copy this text' }, 'Copy');
+  const button = el('button', { type: 'button', className: 'copy', title: 'Copy' });
+  button.setAttribute('aria-label', 'Copy this text');
   let timer;
   button.addEventListener('click', async (event) => {
     event.stopPropagation();
     const ok = await copyText(text);
-    button.textContent = ok ? 'Copied' : 'Not copied';
     button.classList.toggle('copied', ok);
+    button.classList.toggle('failed', !ok);
+    button.title = ok ? 'Copied' : 'Not copied';
+    button.setAttribute('aria-label', ok ? 'Copied' : 'The text was not copied');
     clearTimeout(timer);
-    timer = setTimeout(() => { button.textContent = 'Copy'; button.classList.remove('copied'); }, COPIED_MS);
+    timer = setTimeout(() => {
+      button.classList.remove('copied');
+      button.classList.remove('failed');
+      button.title = 'Copy';
+      button.setAttribute('aria-label', 'Copy this text');
+    }, COPIED_MS);
   });
   return button;
 }
@@ -225,7 +234,7 @@ export function render(text, el, { html = false, vars = '', onCheck = null } = {
       frame.srcdoc = frameDocument(block.text, vars);
       return frame;
     }
-    // The button is in the corner of the box, above the first line of the code.
+    // The icon is in the top right corner of the box. The code keeps space at the right of its first lines for it.
     if (block.type === 'pre') return el('div', { className: 'code' }, copyButton(el, block.text), el('pre', {}, el('code', {}, block.text)));
     if (block.type === 'table') {
       const row = (tag, list) => el('tr', {}, ...list.map((spans) => el(tag, {}, ...spans.map(node))));
