@@ -111,6 +111,9 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     const c = getOpen(id);
     // A text that the owner saw and that changes shows as "updated" in the Inbox.
     db.prepare('UPDATE memos SET text = ?, seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?').run(checkText('text', text), c.id);
+    // The sender changes the text to do what a note of the owner asks. Thus the notes of the owner are read,
+    // and memo wait does not give the same note again.
+    db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ?').run(c.id, owner);
     return get(c.id);
   }
 

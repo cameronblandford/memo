@@ -68,3 +68,7 @@ test('the Inbox links to the Agents page, and the Agents page links back', async
   assert.match((await get('/inbox')).text, /href="\/agents"/);
   assert.match((await get('/agents')).text, /href="\/inbox"/);
 });
+
+test('a check box with the focus does not stop the keys and the refresh', async () => {
+  assert.match((await get('/inbox')).text, /at\.type !== 'checkbox'/);
+});

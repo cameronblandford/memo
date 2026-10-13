@@ -126,6 +126,20 @@ test('pre-push-scan.sh stops a push with a secret or with a personal pattern, an
   writeFileSync(join(dir, 'local', 'scan-allow.txt'), 'lives in Springfield\n');
   assert.equal((await scan(`${afterNote}..HEAD`)).code, undefined);
 
+  // A scan that cannot run stops the push. It is not a clean scan.
+  writeFileSync(join(dir, 'local', 'scan-patterns.txt'), 'Spring(field\n');
+  const badPattern = await scan(`${afterNote}..HEAD`);
+  assert.equal(badPattern.code, 2);
+  assert.match(badPattern.stderr, /The scan failed/);
+  writeFileSync(join(dir, 'local', 'scan-patterns.txt'), 'Springfield\n');
+  writeFileSync(join(dir, 'local', 'scan-allow.txt'), 'lives in Spring(field\n');
+  assert.equal((await scan(`${afterNote}..HEAD`)).code, 2);
+  writeFileSync(join(dir, 'local', 'scan-allow.txt'), 'lives in Springfield\n');
+  const badRange = await scan('no-such-ref..HEAD');
+  assert.equal(badRange.code, 2);
+  assert.match(badRange.stderr, /The scan failed/);
+  assert.equal((await scan(`${afterNote}..HEAD`)).code, undefined);
+
   // As a hook, the script reads the refs of the push from the standard input.
   const hook = await new Promise((done) => {
     const child = execFile('sh', [join(dir, 'scripts', 'pre-push-scan.sh'), 'origin', 'url'], { cwd: dir, env: { ...process.env, MEMO_LOCAL: join(dir, 'local') } }, (error) => done(error));
