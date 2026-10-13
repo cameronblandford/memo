@@ -249,7 +249,11 @@ capture.addEventListener('submit', (event) => {
   });
 });
 
-const typing = () => ['TEXTAREA', 'INPUT', 'SELECT'].includes(document.activeElement?.tagName);
+// A check box keeps the focus after a click. It is not a field with text, so the keys and the refresh continue.
+const typing = () => {
+  const at = document.activeElement;
+  return ['TEXTAREA', 'INPUT', 'SELECT'].includes(at?.tagName) && at.type !== 'checkbox';
+};
 document.addEventListener('keydown', (event) => {
   if (typing() || event.metaKey || event.ctrlKey || event.altKey || !memos.length) return;
   const index = memos.findIndex((c) => c.id === selected);
