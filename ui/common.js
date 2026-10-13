@@ -1,4 +1,6 @@
 // Code that the two Memo pages share. All text goes into the page as text nodes, never as markup.
+import { MAX_BYTES, MAX_SIDE, sendsAsIs, fit, withImage, imageNames } from '/ui/attach.js';
+
 const KEY = 'memo-token';
 let memory = '';
 const readToken = () => { try { return localStorage.getItem(KEY) || memory; } catch { return memory; } };
@@ -77,6 +79,71 @@ export function loadImages(root) {
     });
     img.addEventListener('click', () => { if (img.src) window.open(img.src, '_blank', 'noopener'); });
   }
+}
+
+// A photo from a phone can be 12 megapixels, or a type that the server does not store. The browser makes a JPEG
+// that fits the limits. It tries smaller sizes until the file is small enough.
+async function toJpeg(file) {
+  let source;
+  try { source = await createImageBitmap(file); } catch {
+    throw new Error('This browser cannot read the image. Use a PNG or JPEG file.');
+  }
+  for (const [side, quality] of [[MAX_SIDE, 0.85], [1800, 0.8], [1200, 0.7]]) {
+    const size = fit(source.width, source.height, side);
+    const canvas = el('canvas', size);
+    canvas.getContext('2d').drawImage(source, 0, 0, size.width, size.height);
+    const blob = await new Promise((done) => canvas.toBlob(done, 'image/jpeg', quality));
+    if (blob && blob.size <= MAX_BYTES) return blob;
+  }
+  throw new Error('The image is too large.');
+}
+
+// Stores one image file in Memo and gives its name.
+export async function uploadImage(file) {
+  const body = sendsAsIs(file.type, file.size) ? file : await toJpeg(file);
+  const r = await fetch('/api/image', { method: 'POST', headers: { Authorization: `Bearer ${readToken()}` }, body });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || `The image was not stored (status ${r.status}).`);
+  return data.name;
+}
+
+// Lets the owner attach images to the text of `area`: with the button that this function gives, with a paste,
+// and with a drop. Each image becomes a Markdown line in the text, and `thumbs` shows the images of the text.
+export function attach(area, thumbs) {
+  const input = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp', multiple: true, hidden: true });
+  const label = el('label', { className: 'attach', title: 'Attach an image. You can also paste an image or drop it on the field.' }, 'Image', input);
+  const show = () => {
+    thumbs.replaceChildren(...imageNames(area.value).map((name) => { const img = el('img', { alt: 'Attached image' }); img.dataset.image = name; return img; }));
+    thumbs.hidden = !thumbs.children.length;
+    loadImages(thumbs);
+  };
+  const add = async (files) => {
+    const images = [...files].filter((f) => f.type.startsWith('image/'));
+    if (!images.length) return;
+    label.classList.add('busy');
+    try {
+      for (const file of images) {
+        area.value = withImage(area.value, await uploadImage(file));
+        area.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      note('');
+    } catch (error) { note(error.message); } finally { label.classList.remove('busy'); }
+  };
+  input.addEventListener('change', () => { add(input.files); input.value = ''; });
+  label.addEventListener('click', (event) => event.stopPropagation());
+  area.addEventListener('input', show);
+  area.addEventListener('paste', (event) => {
+    const files = [...(event.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+    if (files.length) { event.preventDefault(); add(files); }
+  });
+  area.addEventListener('dragover', (event) => { if ([...(event.dataTransfer?.types || [])].includes('Files')) event.preventDefault(); });
+  area.addEventListener('drop', (event) => {
+    if (!event.dataTransfer?.files.length) return;
+    event.preventDefault();
+    add(event.dataTransfer.files);
+  });
+  show();
+  return label;
 }
 
 // The colors of the page, for the frames of html blocks.

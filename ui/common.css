@@ -17,7 +17,13 @@ input, textarea, select, button { font: inherit; color: inherit; background: var
 input, textarea { flex: 1; min-width: 0; width: 100%; }
 textarea { display: block; resize: vertical; margin: .5rem 0; }
 #capture { align-items: flex-end; }
-#capture textarea { margin: 0; resize: none; }
+#capture { flex-wrap: wrap; }
+#capture textarea { margin: 0; resize: none; flex: 1 1 12rem; }
+.attach { cursor: pointer; white-space: nowrap; background: var(--panel); border: 1px solid var(--line); border-radius: .5rem; padding: .5rem .65rem; }
+.attach:hover { border-color: var(--accent); }
+.attach.busy { opacity: .5; pointer-events: none; }
+.thumbs { display: flex; flex-wrap: wrap; gap: .4rem; flex-basis: 100%; margin: 0 0 .5rem; }
+.thumbs img { height: 4rem; max-width: 8rem; object-fit: cover; border: 1px solid var(--line); border-radius: .4rem; }
 button { cursor: pointer; white-space: nowrap; }
 button:hover { border-color: var(--accent); }
 .memo { background: var(--panel); border: 1px solid var(--line); border-radius: .75rem; padding: .85rem 1rem; margin-bottom: .75rem; }
@@ -74,7 +80,7 @@ button:hover { border-color: var(--accent); }
 .md th, .md td { border: 1px solid var(--line); padding: .3rem .55rem; text-align: left; vertical-align: top; }
 .md th { background: var(--bg); }
 .md > :first-child { margin-top: 0; }
-.row { display: flex; gap: .5rem; align-items: center; }
+.row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .spacer { flex: 1; }
 details summary { cursor: pointer; color: var(--dim); font-size: .9rem; }
 footer { margin-top: 1.5rem; }

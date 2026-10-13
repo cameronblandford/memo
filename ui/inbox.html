@@ -17,13 +17,14 @@
   <select name="to" aria-label="Agent" hidden></select>
   <textarea name="text" rows="1" placeholder="Capture a task for the agent" autocomplete="off" required aria-label="Task"></textarea>
   <button>Send</button>
+  <div class="thumbs" hidden></div>
 </form>
 <main id="queue"></main>
 <p id="empty" class="dim" hidden>No memos need you now.</p>
 <div id="toasts" role="status" aria-live="polite"></div>
-<footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line.</footer>
+<footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the Image button, paste, or drop the file.</footer>
 <script type="module">
-import { api, el, button, tokenForm, note, age, loadImages, themeVars } from '/ui/common.js';
+import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
 import { enterSends, fieldHeight } from '/ui/keys.js';
 
@@ -47,6 +48,7 @@ function view(memo) {
   area.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); reply(memo, area.value); }
   });
+  const thumbs = el('div', { className: 'thumbs', hidden: true });
   const facts = ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}`;
   // seen 0: the owner did not see the memo. seen 2: its text changed after the owner saw it.
   const tag = memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new');
@@ -59,7 +61,9 @@ function view(memo) {
       el('div', { className: 'who' }, el('b', {}, n.author), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
       el('div', { className: 'md' }, ...markdown(n.text, el))))) : '',
     area,
+    thumbs,
     el('div', { className: 'row' },
+      attach(area, thumbs),
       button('Reply', () => reply(memo, area.value), 'Send the answer. The memo leaves your Inbox.'),
       ['liaison', 'discord'].includes(memo.sender) ? '' : button('Note', () => addNote(memo, area.value), 'Send the text to the agent. The memo stays open in your Inbox.'),
       button('Close', () => close(memo), 'Close the memo. The text in the reply field goes with it.'),
@@ -247,7 +251,7 @@ capture.addEventListener('submit', (event) => {
   run(async () => {
     await api('/api/send', { from: '__OWNER__', to, text: capture.elements.text.value });
     capture.elements.text.value = '';
-    grow();
+    capture.elements.text.dispatchEvent(new Event('input'));
   });
 });
 // The capture field grows with its text, to 40% of the window height.
@@ -257,6 +261,7 @@ function grow() {
   field.style.height = `${fieldHeight(field.scrollHeight + field.offsetHeight - field.clientHeight, window.innerHeight * 0.4)}px`;
 }
 capture.elements.text.addEventListener('input', grow);
+capture.querySelector('button').before(attach(capture.elements.text, capture.querySelector('.thumbs')));
 capture.elements.text.addEventListener('keydown', (event) => {
   if (!enterSends(event, matchMedia('(pointer: coarse)').matches)) return;
   event.preventDefault();
