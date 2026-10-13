@@ -90,6 +90,8 @@ button:hover { border-color: var(--accent); }
 .md .code pre { margin: 0; padding-top: 2.5rem; }
 .md .copy { min-width: 3.4rem; min-height: 1.9rem; padding: .2rem .6rem; border-radius: .4rem; color: var(--dim); font-size: .8rem; white-space: nowrap; }
 .md .code .copy { position: absolute; top: .3rem; right: .3rem; }
+/* flow-root: the quote contains the button, so a quote of one line is as high as the button and nothing goes out of it. */
+.md blockquote:has(.copy) { display: flow-root; }
 .md blockquote .copy { float: right; margin: 0 0 .25rem .5rem; }
 .md .copy.copied { color: var(--accent); border-color: var(--accent); }
 .md a { color: var(--accent); }

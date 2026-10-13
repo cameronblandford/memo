@@ -243,3 +243,9 @@ test('copyText uses the old copy command where the clipboard interface is not th
   assert.equal(await copyText('x\ny', { navigator: { clipboard: { writeText: async (t) => { got = t; } } } }), true);
   assert.equal(got, 'x\ny');
 });
+
+test('a quote contains its copy button, so a quote of one line does not let the button hang out', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../ui/common.css', import.meta.url), 'utf8');
+  assert.match(css, /\.md blockquote:has\(\.copy\) \{ display: flow-root; \}/);
+});
