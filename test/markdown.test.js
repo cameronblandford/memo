@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, inline, frameDocument, checkBoxes, setCheckBox, summary } from '../ui/markdown.js';
+import { parse, inline, frameDocument, checkBoxes, setCheckBox, summary, render, copyText } from '../ui/markdown.js';
 import { makeApp } from './helpers.js';
 
 test('plain text is one paragraph and keeps its line breaks', () => {
@@ -54,7 +54,7 @@ test('an indented line continues the list item before it', () => {
 test('headings, a quote, and a code block', () => {
   assert.deepEqual(parse('## Decision\n> quoted *text*\n> more\n```sh\nnpm test **x**\n\n- not a list\n```\nAfter.'), [
     { type: 'h', spans: [{ t: 'text', text: 'Decision' }] },
-    { type: 'quote', spans: [{ t: 'text', text: 'quoted ' }, { t: 'i', text: 'text' }, { t: 'text', text: '\nmore' }] },
+    { type: 'quote', spans: [{ t: 'text', text: 'quoted ' }, { t: 'i', text: 'text' }, { t: 'text', text: '\nmore' }], text: 'quoted *text*\nmore' },
     { type: 'pre', text: 'npm test **x**\n\n- not a list' },
     { type: 'p', spans: [{ t: 'text', text: 'After.' }] },
   ]);
@@ -178,4 +178,68 @@ test('a long summary is cut', () => {
   const s = summary('word '.repeat(60));
   assert.equal(s.length <= 140, true);
   assert.equal(s.endsWith('…'), true);
+});
+
+// A small element function for the tests: it keeps the tag, the properties, the children, and the click handler.
+function fakeEl(tag, props = {}, ...children) {
+  const node = { tag, ...props, children, handlers: {}, classes: new Set() };
+  node.addEventListener = (name, fn) => { node.handlers[name] = fn; };
+  node.classList = { toggle: (c, on) => (on ? node.classes.add(c) : node.classes.delete(c)), remove: (c) => node.classes.delete(c) };
+  return node;
+}
+const find = (nodes, test, out = []) => {
+  for (const n of nodes) if (n && typeof n === 'object') { if (test(n)) out.push(n); find(n.children || [], test, out); }
+  return out;
+};
+
+test('a code block and a quote get a copy button; inline code, a table, and a list do not', () => {
+  const text = 'Run `npm test` first.\n\n```sh\nnpm test **x**\n\n  - not a list\n```\n\n> Dear Sam,\n> the *draft*.\n\n- one\n\n| a | b |\n|---|---|\n| 1 | 2 |';
+  const nodes = render(text, fakeEl);
+  const buttons = find(nodes, (n) => n.className === 'copy');
+  assert.equal(buttons.length, 2);
+  const code = nodes.find((n) => n.className === 'code');
+  assert.deepEqual(code.children.map((n) => n.tag), ['button', 'pre'], 'the button is in the box of the code');
+  assert.equal(code.children[1].children[0].children[0], 'npm test **x**\n\n  - not a list');
+  const quote = nodes.find((n) => n.tag === 'blockquote');
+  assert.equal(quote.children[0].className, 'copy');
+  assert.equal(find([nodes[0]], (n) => n.className === 'copy').length, 0, 'no button for inline code');
+});
+
+test('the copy button copies the exact text of the block and then says Copied', async () => {
+  const copied = [];
+  const before = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async (t) => { copied.push(t); } } }, configurable: true });
+  try {
+    const raw = '## Title\n\n- [ ] **bold** `code`\n    indented <b>html</b>';
+    const nodes = render(`\`\`\`md\n${raw}\n\`\`\`\n\n> Dear Sam,\n> the *draft* is ready.`, fakeEl);
+    const [codeButton, quoteButton] = find(nodes, (n) => n.className === 'copy');
+    let stopped = false;
+    await codeButton.handlers.click({ stopPropagation: () => { stopped = true; } });
+    assert.deepEqual(copied, [raw], 'no change to the Markdown in the block, and no new line at the end');
+    assert.equal(codeButton.textContent, 'Copied');
+    assert.ok(codeButton.classes.has('copied'));
+    assert.ok(stopped, 'a tap on the button does not select the memo');
+    await quoteButton.handlers.click({ stopPropagation() {} });
+    assert.equal(copied[1], 'Dear Sam,\nthe *draft* is ready.', 'the quote with no "> " marks');
+  } finally {
+    if (before) Object.defineProperty(globalThis, 'navigator', before); else delete globalThis.navigator;
+  }
+});
+
+test('copyText uses the old copy command where the clipboard interface is not there or fails', async () => {
+  const made = [];
+  const doc = (works) => ({
+    execCommand: (name) => { made.push(`exec ${name}`); return works; },
+    createElement: (tag) => { const f = { tag, style: {}, setAttribute() {}, select() { made.push(`select ${f.value}`); }, remove() { made.push('remove'); } }; return f; },
+    body: { append: () => made.push('append') },
+  });
+  assert.equal(await copyText('abc', { document: doc(true) }), true);
+  assert.deepEqual(made, ['append', 'select abc', 'exec copy', 'remove']);
+  // The interface is there but refuses (no permission, or a page that is not secure).
+  assert.equal(await copyText('abc', { navigator: { clipboard: { writeText: async () => { throw new Error('denied'); } } }, document: doc(true) }), true);
+  assert.equal(await copyText('abc', { document: doc(false) }), false);
+  assert.equal(await copyText('abc', {}), false);
+  let got = '';
+  assert.equal(await copyText('x\ny', { navigator: { clipboard: { writeText: async (t) => { got = t; } } } }), true);
+  assert.equal(got, 'x\ny');
 });
