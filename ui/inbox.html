@@ -244,15 +244,20 @@ async function loadAgents() {
     capture.elements.to.hidden = long.length < 2;
   } catch (error) { note(error.message); }
 }
-capture.addEventListener('submit', (event) => {
+let sending = false; // a second Enter or a second click while a memo goes out must not send the text again
+capture.addEventListener('submit', async (event) => {
   event.preventDefault();
+  if (sending) return;
   const to = capture.elements.to.value;
   if (!to) return note('The list of agents did not load. Load the page again.');
-  run(async () => {
-    await api('/api/send', { from: '__OWNER__', to, text: capture.elements.text.value });
-    capture.elements.text.value = '';
-    capture.elements.text.dispatchEvent(new Event('input'));
-  });
+  sending = true;
+  try {
+    await run(async () => {
+      await api('/api/send', { from: '__OWNER__', to, text: capture.elements.text.value });
+      capture.elements.text.value = '';
+      capture.elements.text.dispatchEvent(new Event('input'));
+    });
+  } finally { sending = false; }
 });
 // The capture field grows with its text, to 40% of the window height.
 function grow() {
