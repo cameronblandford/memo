@@ -34,7 +34,23 @@ textarea { display: block; resize: vertical; margin: .5rem 0; }
     conic-gradient(from 135deg at 50% 0, currentColor 90deg, transparent 0) 100% 100% / .9rem .45rem no-repeat,
     conic-gradient(from 135deg at 50% 0, currentColor 90deg, transparent 0) 0 100% / .6rem .3rem no-repeat; }
 .attach:hover { color: var(--accent); opacity: 1; }
-.attach.busy { opacity: .3; pointer-events: none; }
+.attach.busy { opacity: 1; pointer-events: none; }
+/* While an image goes to the server, a spinner is in the place of the picture icon. */
+.attach.busy::before { inset: .5rem; border: 2px solid var(--line); border-top-color: var(--dim); border-radius: 50%; background: none; animation: spin .7s linear infinite; }
+/* A button that sends: a spinner while the request is out, then a check mark. The label keeps its space. */
+button:disabled { cursor: default; opacity: .6; }
+button:disabled:hover { border-color: var(--line); }
+button.sending, button.sent { position: relative; color: transparent; opacity: 1; }
+button.sending::after { content: ""; position: absolute; left: calc(50% - .5rem); top: calc(50% - .5rem); width: 1rem; height: 1rem; box-sizing: border-box;
+  border: 2px solid var(--line); border-top-color: var(--dim); border-radius: 50%; animation: spin .7s linear infinite; }
+button.sent::after { content: ""; position: absolute; left: calc(50% - .2rem); top: calc(50% - .5rem); width: .4rem; height: .75rem; box-sizing: border-box;
+  border: solid var(--accent); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg); animation: pop .25s ease-out; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pop { from { opacity: 0; transform: rotate(45deg) scale(.4); } }
+@media (prefers-reduced-motion: reduce) {
+  .attach.busy::before, button.sending::after { animation: none; border-style: dotted; }
+  button.sent::after { animation: none; }
+}
 .thumbs { display: flex; flex-wrap: wrap; gap: .4rem; flex-basis: 100%; margin: 0 0 .5rem; }
 .thumbs img { height: 4rem; max-width: 8rem; object-fit: cover; border: 1px solid var(--line); border-radius: .4rem; }
 button { cursor: pointer; white-space: nowrap; }

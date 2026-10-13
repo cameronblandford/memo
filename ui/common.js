@@ -15,7 +15,7 @@ export function el(tag, props = {}, ...children) {
 
 export function button(label, onClick, title = '') {
   const node = el('button', { type: 'button', title }, label);
-  node.addEventListener('click', (event) => { event.stopPropagation(); onClick(); });
+  node.addEventListener('click', (event) => { event.stopPropagation(); onClick(node); });
   return node;
 }
 
@@ -108,8 +108,9 @@ export async function uploadImage(file) {
 }
 
 // Lets the owner attach images to the text of `area`: with the icon in the field, with a paste, and with a drop.
-// The function gives a box that contains the field and the icon; put the box where the field must be. Each image becomes a Markdown line in the text, and `thumbs` shows the images of the text.
-export function attach(area, thumbs) {
+// The function gives a box that contains the field and the icon; put the box where the field must be.
+// `onBusy` gets true while an image goes to the server and false after it: the caller turns its send buttons off. Each image becomes a Markdown line in the text, and `thumbs` shows the images of the text.
+export function attach(area, thumbs, onBusy = () => {}) {
   const input = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp', multiple: true, hidden: true });
   // A small picture icon at the right of the field. The style sheet draws it (.attach in common.css).
   const label = el('label', { className: 'attach', title: 'Attach an image. You can also paste an image or drop it on the field.' }, input);
@@ -127,13 +128,14 @@ export function attach(area, thumbs) {
     const images = [...files].filter((f) => f.type.startsWith('image/'));
     if (!images.length) return;
     label.classList.add('busy');
+    onBusy(true);
     try {
       for (const file of images) {
         area.value = withImage(area.value, await uploadImage(file));
         area.dispatchEvent(new Event('input', { bubbles: true }));
       }
       note('');
-    } catch (error) { note(error.message); } finally { label.classList.remove('busy'); }
+    } catch (error) { note(error.message); } finally { label.classList.remove('busy'); onBusy(false); }
   };
   input.addEventListener('change', () => { add(input.files); input.value = ''; });
   label.addEventListener('click', (event) => event.stopPropagation());

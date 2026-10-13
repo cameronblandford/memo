@@ -13,6 +13,7 @@ const UI = {
   'markdown.js': 'text/javascript; charset=utf-8',
   'keys.js': 'text/javascript; charset=utf-8',
   'attach.js': 'text/javascript; charset=utf-8',
+  'feedback.js': 'text/javascript; charset=utf-8',
   'common.css': 'text/css; charset=utf-8',
 };
 const LIAISON = 'liaison';
