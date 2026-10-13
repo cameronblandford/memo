@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/ui/common.css">
 </head>
 <body>
-<header><h1>Inbox</h1><span id="count"></span><a href="/agents">Agents</a></header>
+<header><h1>Inbox</h1><span id="count"></span><button id="work-only" type="button" aria-pressed="false" title="Show only the work tickets: the memos with a code such as SUB-6. Key: w">Work only</button><a href="/agents">Agents</a></header>
 <form id="token-form" hidden>
   <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
   <button>Save</button>
@@ -126,6 +126,8 @@ function onScreen(node) {
   return shown >= Math.min(r.height, innerHeight) / 2;
 }
 function goTo(id) {
+  // A toast can be for a memo that the work filter hides.
+  if (!nodeOf(id) && workOnly && memos.some((c) => c.id === id)) setWorkOnly(false);
   const node = nodeOf(id);
   if (!node) return;
   select(id);
@@ -190,16 +192,36 @@ function tickView(tick) {
 }
 const doneTicks = new Map(); // ticks that the owner did on this page, for the done rows
 
+import { shownMemos, step, countText } from '/ui/filter.js';
+// The work filter: when it is on, the list shows only the work tickets, and no ticks. The page keeps the state.
+const WORK_KEY = 'memo-work-only';
+const workButton = document.getElementById('work-only');
+let workOnly = false;
+try { workOnly = localStorage.getItem(WORK_KEY) === '1'; } catch { /* a private window: the filter starts off */ }
+const shown = () => shownMemos(memos, workOnly);
+function setWorkOnly(on) {
+  workOnly = on;
+  try { localStorage.setItem(WORK_KEY, on ? '1' : '0'); } catch { /* a private window: the state stays in memory */ }
+  render();
+  nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+}
+workButton.addEventListener('click', () => { setWorkOnly(!workOnly); workButton.blur(); });
+
 function render() {
-  if (!memos.some((c) => c.id === selected)) selected = memos[0]?.id ?? null;
+  const list = shown();
+  const rows = workOnly ? [] : ticks;
+  if (!list.some((c) => c.id === selected)) selected = list[0]?.id ?? null;
   watch.disconnect();
   for (const timer of waiting.values()) clearTimeout(timer);
   waiting.clear();
-  queue.replaceChildren(...memos.map(view));
-  for (const tick of ticks) queue.insertBefore(tickView(tick), tick.before === null ? null : nodeOf(tick.before) || null);
+  queue.replaceChildren(...list.map(view));
+  for (const tick of rows) queue.insertBefore(tickView(tick), tick.before === null ? null : nodeOf(tick.before) || null);
   loadImages(queue);
-  document.getElementById('count').textContent = memos.length === 1 ? '1 memo' : `${memos.length} memos`;
-  document.getElementById('empty').hidden = memos.length > 0 || ticks.length > 0;
+  workButton.setAttribute('aria-pressed', String(workOnly));
+  document.getElementById('count').textContent = countText(list.length, memos.length, workOnly);
+  const empty = document.getElementById('empty');
+  empty.textContent = workOnly ? 'No work tickets need you now.' : 'No memos need you now.';
+  empty.hidden = list.length > 0 || rows.length > 0;
 }
 
 async function load() {
@@ -251,11 +273,15 @@ capture.addEventListener('submit', (event) => {
 
 const typing = () => ['TEXTAREA', 'INPUT', 'SELECT'].includes(document.activeElement?.tagName);
 document.addEventListener('keydown', (event) => {
-  if (typing() || event.metaKey || event.ctrlKey || event.altKey || !memos.length) return;
-  const index = memos.findIndex((c) => c.id === selected);
-  if (event.key === 'j') select(memos[Math.min(memos.length - 1, index + 1)].id);
-  else if (event.key === 'k') select(memos[Math.max(0, index - 1)].id);
-  else if (event.key === '+' || event.key === '=') adjust(selected, 1);
+  if (typing() || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.key === 'w') return setWorkOnly(!workOnly);
+  const list = shown();
+  if (!list.length) return;
+  if (event.key === 'j' || event.key === 'k') {
+    // The keys move through the memos that the list shows. The page follows the selection with no animation.
+    select(step(list, selected, event.key === 'j' ? 1 : -1));
+    nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+  } else if (event.key === '+' || event.key === '=') adjust(selected, 1);
   else if (event.key === '-') adjust(selected, -1);
 });
 
