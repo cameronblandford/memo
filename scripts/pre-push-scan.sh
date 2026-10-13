@@ -48,15 +48,19 @@ if [ -f "$local_dir/scan-patterns.txt" ]; then grep -v -E '^[[:space:]]*(#|$)' "
 else echo "pre-push-scan: no file $local_dir/scan-patterns.txt, so only the general patterns apply." >&2; fi
 if [ -f "$local_dir/scan-allow.txt" ]; then grep -v -E '^[[:space:]]*(#|$)' "$local_dir/scan-allow.txt" >> "$tmp/allow" || true; fi
 
+# An error stops the push: a scan that did not run is not a clean scan.
+stop() { echo "pre-push-scan: the push stops. The scan failed: $1" >&2; exit 2; }
+
 # Prints one line for each added line and each message line of the commits: "<commit> <file or message>: <text>".
 lines() {
   # shellcheck disable=SC2086
-  git log -p --no-color --no-ext-diff --format='commit %H%n%B%n---' $1 | awk '
+  git log -p --no-color --no-ext-diff --format='commit %H%n%B%n---' $1 > "$tmp/log" || stop "git could not read the commits of $1."
+  awk '
     /^commit [0-9a-f]{40}$/ { c = substr($2, 1, 8); f = "message"; next }
     /^diff --git / { f = "diff"; next }
     /^\+\+\+ / { f = substr($0, 5); sub(/^b\//, "", f); next }
     f == "message" { if ($0 != "" && $0 != "---") print c " message: " $0; next }
-    /^\+/ { print c " " f ": " substr($0, 2) }'
+    /^\+/ { print c " " f ": " substr($0, 2) }' "$tmp/log"
 }
 
 : > "$tmp/lines"
@@ -71,7 +75,13 @@ else
   done
 fi
 
-found="$(grep -E -f "$tmp/patterns" "$tmp/lines" | grep -v -E -f "$tmp/allow" || true)"
+# grep ends with 0 for a match, 1 for no match, and 2 for an error (for example an expression that is not valid
+# in local/scan-patterns.txt).
+status=0; grep -E -f "$tmp/patterns" "$tmp/lines" > "$tmp/matches" || status=$?
+[ "$status" -le 1 ] || stop "grep could not use the patterns. Check local/scan-patterns.txt."
+status=0; grep -v -E -f "$tmp/allow" "$tmp/matches" > "$tmp/found" || status=$?
+[ "$status" -le 1 ] || stop "grep could not use the allow list. Check local/scan-allow.txt."
+found="$(cat "$tmp/found")"
 if [ -n "$found" ]; then
   {
     echo "pre-push-scan: the push stops. These lines look like personal data or a secret:"

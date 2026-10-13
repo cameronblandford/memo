@@ -10,6 +10,10 @@ body { margin: 0 auto; max-width: 44rem; padding: 1rem; background: var(--bg); c
 header { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem; }
 header h1 { margin: 0; font-size: 1.4rem; }
 header a { margin-left: auto; color: var(--dim); font-size: .9rem; }
+#work-only { margin-left: auto; padding: .15rem .6rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
+#work-only + a { margin-left: 0; }
+#work-only[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.memo { scroll-margin: .75rem 0; }
 #count, .dim, footer { color: var(--dim); font-size: .9rem; }
 #note { margin: 0 0 1rem; padding: .5rem .75rem; border: 1px solid var(--warn); border-radius: .5rem; color: var(--warn); }
 form { display: flex; gap: .5rem; margin-bottom: 1rem; }

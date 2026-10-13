@@ -8,6 +8,7 @@ import { dueSoon } from './rank.js';
 
 // The only files that /ui/<name> gives.
 const UI = {
+  'filter.js': 'text/javascript; charset=utf-8',
   'common.js': 'text/javascript; charset=utf-8',
   'markdown.js': 'text/javascript; charset=utf-8',
   'keys.js': 'text/javascript; charset=utf-8',

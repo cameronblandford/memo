@@ -202,6 +202,17 @@ test('edit changes the text of an open memo and nothing more', () => {
   assert.deepEqual([c.state, c.impact, c.effort, c.due, c.sender], ['open', 3, 'micro', '2026-10-15', 'main']);
 });
 
+test('edit marks the notes of the owner as read, so that the sender does not get the same note again', () => {
+  const s = makeStore();
+  const { id } = s.send(toCam).memo;
+  s.note(id, 'cam', 'Add the price, please.');
+  assert.deepEqual(s.news('main').noted.map((c) => c.id), [id]);
+  const c = s.edit(id, 'Approve the deploy? The price is $14.');
+  assert.equal(c.notes[0].read, 1);
+  assert.deepEqual(s.news('main').noted, []);
+  assert.equal(c.state, 'open');
+});
+
 test('edit refuses a closed memo, an empty text, and an unknown memo', () => {
   const s = makeStore();
   s.send(toCam);

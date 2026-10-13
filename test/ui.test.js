@@ -136,3 +136,7 @@ test('the capture form does not send again while a memo goes out', async () => {
   assert.match(inbox, /if \(sending\) return;/);
   assert.match(inbox, /finally \{ sending = false; \}/);
 });
+
+test('a check box with the focus does not stop the keys and the refresh', async () => {
+  assert.match((await get('/inbox')).text, /at\.type !== 'checkbox'/);
+});
