@@ -1,7 +1,9 @@
 // The Memo command-line client. The agents call it through Bash: scripts/memo <command> ...
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { imageNames } from '../ui/attach.js';
 
 const USAGE = `Usage:
   memo send --from <name> --to <name> [--impact 1-5 --effort micro|short|hour|half-day|day] [--due YYYY-MM-DD] [--] <text>
@@ -96,6 +98,42 @@ const memoId = (v) => {
 const query = (v) => encodeURIComponent(v);
 const when = (iso) => `${iso.slice(0, 16).replace('T', ' ')} UTC`;
 
+// The images in the text that a memo brings to the reader: the memo text (not for a memo that the reader sent),
+// the notes, and the reply.
+const broughtImages = (c, own) => imageNames([own ? '' : c.text, c.reply || '', ...(c.notes || []).map((n) => n.text)].join('\n'));
+
+// An agent cannot see an image in the text, so the client gets each file and gives its local path. The agent
+// opens the path with its Read tool. The first directory that the client can write to holds the files.
+const imageDirs = [process.env.MEMO_IMAGE_DIR, process.env.MEMO_WORK_DIR && join(process.env.MEMO_WORK_DIR, 'images'), join(root, 'work', 'images'), join(tmpdir(), 'memo-images')].filter(Boolean);
+async function localImage(name) {
+  for (const dir of imageDirs) if (existsSync(join(dir, name))) return join(dir, name);
+  let r;
+  try { r = await fetch(`${base}/api/image/${name}`, { headers: { Authorization: `Bearer ${token}` } }); } catch { return null; }
+  if (!r.ok) return null;
+  const bytes = Buffer.from(await r.arrayBuffer());
+  for (const dir of imageDirs) {
+    try {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, name), bytes, { mode: 0o600 });
+      return join(dir, name);
+    } catch { /* try the next directory */ }
+  }
+  return null;
+}
+// own: the reader sent these memos.
+async function showAll(memos, own = false) {
+  const out = [];
+  for (const c of memos) {
+    const lines = [];
+    for (const name of broughtImages(c, own)) {
+      const path = await localImage(name);
+      lines.push(path ? `Image ${name} is the file ${path}. Open the file to see the image.` : `Image ${name}: memo could not get the file. Run the command again.`);
+    }
+    out.push(show(c) + (lines.length ? `${lines.join('\n')}\n` : ''));
+  }
+  return out.join('\n');
+}
+
 function show(c) {
   const head = `#${c.id} from ${c.sender} to ${c.recipient}, ${when(c.created)}`
     + (c.impact != null ? `, impact ${c.impact}, effort ${c.effort}` : '')
@@ -160,7 +198,7 @@ const commands = {
   async list() {
     const memos = await call(`/api/list?to=${query(need('to'))}`);
     if (!memos.length) console.log(`No open memos to ${flags.to}.`);
-    for (const c of memos) console.log(show(c));
+    if (memos.length) console.log(await showAll(memos));
   },
   // Stores an image file in Memo and prints the Markdown that shows it. Put the printed text into a memo.
   async image() {
@@ -215,14 +253,14 @@ const commands = {
         const fresh = news.to_you.filter((c) => !hold.includes(c.id));
         const noted = news.noted || [];
         if (fresh.length || news.results.length || noted.length) {
-          if (fresh.length) console.log(`New memos to ${who}:\n\n${fresh.map(show).join('\n')}`);
+          if (fresh.length) console.log(`New memos to ${who}:\n\n${await showAll(fresh)}`);
           if (noted.length) {
-            console.log(`Open memos from ${who} with a new note of the owner. Each memo stays open:\n\n${noted.map(show).join('\n')}`);
+            console.log(`Open memos from ${who} with a new note of the owner. Each memo stays open:\n\n${await showAll(noted, true)}`);
             console.log(`Do what each note asks. Answer in the memo with: memo note <id> --from ${who} "<text>". To change the memo text, use memo edit.`);
             console.log(`If no answer is necessary, run: memo ack ${noted.map((c) => c.id).join(' ')}\n`);
           }
           if (news.results.length) {
-            console.log(`Results of memos from ${who}:\n\n${news.results.map(show).join('\n')}`);
+            console.log(`Results of memos from ${who}:\n\n${await showAll(news.results, true)}`);
             console.log(`After you read the results, run: memo ack ${news.results.map((c) => c.id).join(' ')}`);
           }
           return;

@@ -15,16 +15,18 @@
 <p id="note" role="status" hidden></p>
 <form id="capture">
   <select name="to" aria-label="Agent" hidden></select>
-  <input name="text" placeholder="Capture a task for the agent" autocomplete="off" required aria-label="Task">
+  <textarea name="text" rows="1" placeholder="Capture a task for the agent" autocomplete="off" required aria-label="Task"></textarea>
   <button>Send</button>
+  <div class="thumbs" hidden></div>
 </form>
 <main id="queue"></main>
 <p id="empty" class="dim" hidden>No memos need you now.</p>
 <div id="toasts" role="status" aria-live="polite"></div>
-<footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply.</footer>
+<footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
 <script type="module">
-import { api, el, button, tokenForm, note, age, loadImages, themeVars } from '/ui/common.js';
+import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
+import { enterSends, fieldHeight } from '/ui/keys.js';
 
 const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
@@ -46,6 +48,7 @@ function view(memo) {
   area.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); reply(memo, area.value); }
   });
+  const thumbs = el('div', { className: 'thumbs', hidden: true });
   const facts = ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}`;
   // seen 0: the owner did not see the memo. seen 2: its text changed after the owner saw it.
   const tag = memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new');
@@ -57,7 +60,8 @@ function view(memo) {
     memo.notes ? el('div', { className: 'notes' }, ...memo.notes.map((n) => el('div', { className: 'note' },
       el('div', { className: 'who' }, el('b', {}, n.author), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
       el('div', { className: 'md' }, ...markdown(n.text, el))))) : '',
-    area,
+    attach(area, thumbs),
+    thumbs,
     el('div', { className: 'row' },
       button('Reply', () => reply(memo, area.value), 'Send the answer. The memo leaves your Inbox.'),
       ['liaison', 'discord'].includes(memo.sender) ? '' : button('Note', () => addNote(memo, area.value), 'Send the text to the agent. The memo stays open in your Inbox.'),
@@ -261,14 +265,33 @@ async function loadAgents() {
     capture.elements.to.hidden = long.length < 2;
   } catch (error) { note(error.message); }
 }
-capture.addEventListener('submit', (event) => {
+let sending = false; // a second Enter or a second click while a memo goes out must not send the text again
+capture.addEventListener('submit', async (event) => {
   event.preventDefault();
+  if (sending) return;
   const to = capture.elements.to.value;
   if (!to) return note('The list of agents did not load. Load the page again.');
-  run(async () => {
-    await api('/api/send', { from: '__OWNER__', to, text: capture.elements.text.value });
-    capture.elements.text.value = '';
-  });
+  sending = true;
+  try {
+    await run(async () => {
+      await api('/api/send', { from: '__OWNER__', to, text: capture.elements.text.value });
+      capture.elements.text.value = '';
+      capture.elements.text.dispatchEvent(new Event('input'));
+    });
+  } finally { sending = false; }
+});
+// The capture field grows with its text, to 40% of the window height.
+function grow() {
+  const field = capture.elements.text;
+  field.style.height = 'auto';
+  field.style.height = `${fieldHeight(field.scrollHeight + field.offsetHeight - field.clientHeight, window.innerHeight * 0.4)}px`;
+}
+capture.elements.text.addEventListener('input', grow);
+attach(capture.elements.text, capture.querySelector('.thumbs'));
+capture.elements.text.addEventListener('keydown', (event) => {
+  if (!enterSends(event, matchMedia('(pointer: coarse)').matches)) return;
+  event.preventDefault();
+  capture.requestSubmit();
 });
 
 // A check box keeps the focus after a click. It is not a field with text, so the keys and the refresh continue.

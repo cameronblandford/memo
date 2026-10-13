@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeApp, ROOT } from './helpers.js';
+import { enterSends, fieldHeight } from '../ui/keys.js';
+import { MAX_BYTES, sendsAsIs, fit, withImage, imageNames } from '../ui/attach.js';
 
 const get = async (path) => { const r = await makeApp().app.request(path); return { status: r.status, type: r.headers.get('content-type') || '', text: await r.text() }; };
 
@@ -67,6 +69,72 @@ test('the pages have a content rule that stops requests to other hosts', async (
 test('the Inbox links to the Agents page, and the Agents page links back', async () => {
   assert.match((await get('/inbox')).text, /href="\/agents"/);
   assert.match((await get('/agents')).text, /href="\/inbox"/);
+});
+
+test('the capture field has many lines and the page loads its key rules', async () => {
+  const inbox = (await get('/inbox')).text;
+  assert.match(inbox, /<textarea name="text"[^>]*aria-label="Task"/);
+  assert.doesNotMatch(inbox, /<input name="text"/);
+  assert.match((await get('/ui/keys.js')).type, /javascript/);
+});
+
+test('in the capture field Enter sends and Shift+Enter adds a line', () => {
+  const key = (more = {}) => ({ key: 'Enter', shiftKey: false, altKey: false, isComposing: false, ...more });
+  assert.equal(enterSends(key(), false), true);
+  assert.equal(enterSends(key({ shiftKey: true }), false), false);
+  assert.equal(enterSends(key({ altKey: true }), false), false);
+  assert.equal(enterSends(key({ isComposing: true }), false), false, 'Enter that confirms an input method text does not send');
+  assert.equal(enterSends(key({ keyCode: 229 }), false), false, 'Safari: the Enter after the composition ends has the key code 229');
+  assert.equal(enterSends(key({ repeat: true }), false), false, 'a held key does not send again');
+  assert.equal(enterSends(key({ key: 'a' }), false), false);
+  assert.equal(enterSends(key(), true), false, 'on a touch screen Enter adds a line');
+});
+
+test('the capture field grows to a limit', () => {
+  assert.equal(fieldHeight(40.2, 300), 41);
+  assert.equal(fieldHeight(900, 300), 300);
+  assert.equal(fieldHeight(-5, 300), 0);
+});
+
+test('the pages can attach an image', async () => {
+  assert.match((await get('/ui/attach.js')).type, /javascript/);
+  const common = (await get('/ui/common.js')).text;
+  assert.match(common, /accept: 'image\/png,image\/jpeg,image\/gif,image\/webp'/);
+  assert.match((await get('/inbox')).text, /attach\(capture\.elements\.text/);
+});
+
+test('a small image goes as it is, and a large photo or an unknown type becomes a JPEG first', () => {
+  assert.equal(sendsAsIs('image/png', 200_000), true);
+  assert.equal(sendsAsIs('image/jpeg', 1_000_000), true);
+  assert.equal(sendsAsIs('image/jpeg', 4_000_000), false, 'a large photo gets smaller');
+  assert.equal(sendsAsIs('image/heic', 200_000), false);
+  assert.equal(sendsAsIs('image/svg+xml', 2_000), false);
+  assert.equal(sendsAsIs('image/gif', 4_000_000), true, 'a GIF can move, so it stays a GIF');
+  assert.equal(sendsAsIs('image/gif', MAX_BYTES + 1), false);
+});
+
+test('an image that the browser makes smaller keeps its shape', () => {
+  assert.deepEqual(fit(4032, 3024, 2400), { width: 2400, height: 1800 });
+  assert.deepEqual(fit(3024, 4032, 2400), { width: 1800, height: 2400 });
+  assert.deepEqual(fit(800, 600, 2400), { width: 800, height: 600 });
+  assert.deepEqual(fit(0, 0, 2400), { width: 1, height: 1 });
+});
+
+test('an attached image is a Markdown line at the end of the text', () => {
+  const name = '0123456789abcdef.jpg';
+  assert.equal(withImage('', name), `![image](image:${name})\n`);
+  assert.equal(withImage('The pain is here:\n', name), `The pain is here:\n\n![image](image:${name})\n`);
+  const two = withImage(withImage('See', name), 'fedcba9876543210.png');
+  assert.deepEqual(imageNames(two), [name, 'fedcba9876543210.png']);
+  assert.deepEqual(imageNames(`${two}${two}`), [name, 'fedcba9876543210.png'], 'each name one time');
+  assert.deepEqual(imageNames('![x](image:../../etc/passwd) ![y](https://example.com/a.png) ![z](image:0123.png)'), []);
+  assert.deepEqual(imageNames(undefined), []);
+});
+
+test('the capture form does not send again while a memo goes out', async () => {
+  const inbox = (await get('/inbox')).text;
+  assert.match(inbox, /if \(sending\) return;/);
+  assert.match(inbox, /finally \{ sending = false; \}/);
 });
 
 test('a check box with the focus does not stop the keys and the refresh', async () => {

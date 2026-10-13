@@ -20,6 +20,23 @@ form { display: flex; gap: .5rem; margin-bottom: 1rem; }
 input, textarea, select, button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: .5rem; padding: .5rem .65rem; }
 input, textarea { flex: 1; min-width: 0; width: 100%; }
 textarea { display: block; resize: vertical; margin: .5rem 0; }
+#capture { align-items: flex-end; }
+#capture { flex-wrap: wrap; }
+#capture textarea { margin: 0; resize: none; flex: 1 1 12rem; }
+.field { position: relative; flex: 1 1 12rem; min-width: 0; }
+.field textarea { padding-right: 2.4rem; }
+#capture .field textarea { flex: none; }
+/* The picture icon: a frame, a sun, and a hill. The label is larger than the icon, so a finger can hit it. */
+.attach { position: absolute; right: .3rem; bottom: .3rem; width: 2rem; height: 2rem; color: var(--dim); opacity: .75; cursor: pointer; }
+.memo .attach { bottom: .8rem; }
+.attach::before { content: ""; position: absolute; inset: .45rem .3rem; border: 1.5px solid currentColor; border-radius: .2rem;
+  background: radial-gradient(circle at 28% 32%, currentColor 0 .1rem, transparent .12rem),
+    conic-gradient(from 135deg at 50% 0, currentColor 90deg, transparent 0) 100% 100% / .9rem .45rem no-repeat,
+    conic-gradient(from 135deg at 50% 0, currentColor 90deg, transparent 0) 0 100% / .6rem .3rem no-repeat; }
+.attach:hover { color: var(--accent); opacity: 1; }
+.attach.busy { opacity: .3; pointer-events: none; }
+.thumbs { display: flex; flex-wrap: wrap; gap: .4rem; flex-basis: 100%; margin: 0 0 .5rem; }
+.thumbs img { height: 4rem; max-width: 8rem; object-fit: cover; border: 1px solid var(--line); border-radius: .4rem; }
 button { cursor: pointer; white-space: nowrap; }
 button:hover { border-color: var(--accent); }
 .memo { background: var(--panel); border: 1px solid var(--line); border-radius: .75rem; padding: .85rem 1rem; margin-bottom: .75rem; }
@@ -77,6 +94,7 @@ button:hover { border-color: var(--accent); }
 .md th { background: var(--bg); }
 .md > :first-child { margin-top: 0; }
 .row { display: flex; gap: .5rem; align-items: center; }
+@media (max-width: 26rem) { .row { gap: .35rem; } .row button { padding: .5rem .5rem; } }
 .spacer { flex: 1; }
 details summary { cursor: pointer; color: var(--dim); font-size: .9rem; }
 footer { margin-top: 1.5rem; }

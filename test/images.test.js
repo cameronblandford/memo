@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { serve } from '@hono/node-server';
@@ -87,5 +87,33 @@ test('memo image stores a file and prints the Markdown for it', async () => {
     assert.equal(missing.code, 1);
     assert.match(missing.stderr, /cannot read/);
     assert.match((await memo(['image'])).stderr, /path/);
+  } finally { server.close(); }
+});
+
+// The client gets the images of a memo and prints a local path, because an agent cannot see an image in the text.
+test('memo list and memo wait give the reader a local file for each image', async () => {
+  const { app, store } = makeApp();
+  const server = await new Promise((done) => { const s = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 }, () => done(s)); });
+  const dir = mkdtempSync(join(tmpdir(), 'memo-got-'));
+  const env = { ...process.env, MEMO_URL: `http://127.0.0.1:${server.address().port}`, MEMO_TOKEN: TOKEN, MEMO_IMAGE_DIR: dir, MEMO_WAIT_INTERVAL_MS: '50' };
+  const memo = async (...args) => (await run('node', [join(ROOT, 'scripts', 'memo.mjs'), ...args], { env })).stdout;
+  try {
+    const png = (await (await post(app, PNG)).json()).name;
+    const jpeg = (await (await post(app, JPEG)).json()).name;
+    store.send({ from: 'cam', to: 'main', text: `The page shows this:\n\n![image](image:${png})\n` });
+    const list = await memo('list', '--to', 'main');
+    assert.match(list, new RegExp(`Image ${png.replace('.', '\\.')} is the file ${join(dir, png).replace(/[.\\/]/g, '\\$&')}\\.`));
+    assert.deepEqual(readFileSync(join(dir, png)), PNG);
+    assert.equal(statSync(join(dir, png)).mode & 0o777, 0o600);
+    // The agent showed an image to the owner; the owner answers with a different image.
+    const asked = store.send({ from: 'main', to: 'cam', impact: 2, effort: 'micro', text: `Is this the correct page?\n\n![shot](image:${png})` });
+    store.reply(asked.memo.id, `No, this one: ![image](image:${jpeg})`);
+    const wait = await memo('wait', '--as', 'main', '--hold', '1', '1');
+    assert.match(wait, new RegExp(`Image ${jpeg.replace('.', '\\.')} is the file`));
+    assert.doesNotMatch(wait, new RegExp(`Image ${png.replace('.', '\\.')} is the file`), 'not the image that the agent sent');
+    assert.deepEqual(readFileSync(join(dir, jpeg)), JPEG);
+    // An image that the server does not have gives a clear line and no failure.
+    store.send({ from: 'cam', to: 'main', text: 'Gone: ![image](image:0000000000000000.png)' });
+    assert.match(await memo('list', '--to', 'main'), /Image 0000000000000000\.png: memo could not get the file\./);
   } finally { server.close(); }
 });
