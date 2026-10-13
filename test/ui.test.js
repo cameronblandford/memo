@@ -26,6 +26,10 @@ test('the ui route gives only the two shared files', async () => {
   assert.equal((await get('/ui/constructor')).status, 404);
 });
 
+test('a check box with the focus does not stop the keys and the refresh', async () => {
+  assert.match((await get('/inbox')).text, /at\.type !== 'checkbox'/);
+});
+
 test('the pages put text into the document only as text', () => {
   for (const name of readdirSync(join(ROOT, 'ui'))) {
     const source = readFileSync(join(ROOT, 'ui', name), 'utf8');
@@ -67,8 +71,4 @@ test('the pages have a content rule that stops requests to other hosts', async (
 test('the Inbox links to the Agents page, and the Agents page links back', async () => {
   assert.match((await get('/inbox')).text, /href="\/agents"/);
   assert.match((await get('/agents')).text, /href="\/inbox"/);
-});
-
-test('a check box with the focus does not stop the keys and the refresh', async () => {
-  assert.match((await get('/inbox')).text, /at\.type !== 'checkbox'/);
 });
