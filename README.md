@@ -97,7 +97,7 @@ An image must be in Memo: `scripts/memo image <path> "<text>"` stores the file i
 
 ### An image from the owner
 
-In the Inbox, the owner can attach images to a new memo, a reply, and a note: with the Image button (on a phone it opens the photo library and the camera), with a paste, or with a drop on the field. Each image becomes a Markdown line in the text, and the field shows a small view of each image.
+In the Inbox, the owner can attach images to a new memo, a reply, and a note: with the picture icon in the field (on a phone it opens the photo library and the camera), with a paste, or with a drop on the field. Each image becomes a Markdown line in the text, and the field shows a small view of each image.
 
 - The browser sends a PNG, JPEG, or WebP file of 1.5 MB or less, and a GIF of 5 MB or less, with no change. It makes a JPEG of each other image first, with the longest side not more than 2400 pixels. Thus a large phone photo and a HEIC photo also go through, if the browser can read the file.
 - The files are in `data/images/`, the same store as `memo image`. A request for an image needs the token. The name of a file comes from its content, so the same image is stored one time.

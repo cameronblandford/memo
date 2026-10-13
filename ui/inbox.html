@@ -22,7 +22,7 @@
 <main id="queue"></main>
 <p id="empty" class="dim" hidden>No memos need you now.</p>
 <div id="toasts" role="status" aria-live="polite"></div>
-<footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the Image button, paste, or drop the file.</footer>
+<footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
@@ -60,10 +60,9 @@ function view(memo) {
     memo.notes ? el('div', { className: 'notes' }, ...memo.notes.map((n) => el('div', { className: 'note' },
       el('div', { className: 'who' }, el('b', {}, n.author), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
       el('div', { className: 'md' }, ...markdown(n.text, el))))) : '',
-    area,
+    attach(area, thumbs),
     thumbs,
     el('div', { className: 'row' },
-      attach(area, thumbs),
       button('Reply', () => reply(memo, area.value), 'Send the answer. The memo leaves your Inbox.'),
       ['liaison', 'discord'].includes(memo.sender) ? '' : button('Note', () => addNote(memo, area.value), 'Send the text to the agent. The memo stays open in your Inbox.'),
       button('Close', () => close(memo), 'Close the memo. The text in the reply field goes with it.'),
@@ -288,7 +287,7 @@ function grow() {
   field.style.height = `${fieldHeight(field.scrollHeight + field.offsetHeight - field.clientHeight, window.innerHeight * 0.4)}px`;
 }
 capture.elements.text.addEventListener('input', grow);
-capture.querySelector('button').before(attach(capture.elements.text, capture.querySelector('.thumbs')));
+attach(capture.elements.text, capture.querySelector('.thumbs'));
 capture.elements.text.addEventListener('keydown', (event) => {
   if (!enterSends(event, matchMedia('(pointer: coarse)').matches)) return;
   event.preventDefault();

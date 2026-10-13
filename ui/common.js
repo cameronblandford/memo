@@ -107,11 +107,17 @@ export async function uploadImage(file) {
   return data.name;
 }
 
-// Lets the owner attach images to the text of `area`: with the button that this function gives, with a paste,
-// and with a drop. Each image becomes a Markdown line in the text, and `thumbs` shows the images of the text.
+// Lets the owner attach images to the text of `area`: with the icon in the field, with a paste, and with a drop.
+// The function gives a box that contains the field and the icon; put the box where the field must be. Each image becomes a Markdown line in the text, and `thumbs` shows the images of the text.
 export function attach(area, thumbs) {
   const input = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp', multiple: true, hidden: true });
-  const label = el('label', { className: 'attach', title: 'Attach an image. You can also paste an image or drop it on the field.' }, 'Image', input);
+  // A small picture icon at the right of the field. The style sheet draws it (.attach in common.css).
+  const label = el('label', { className: 'attach', title: 'Attach an image. You can also paste an image or drop it on the field.' }, input);
+  label.setAttribute('aria-label', 'Attach an image');
+  // The field and the icon go into one box, so that the icon can be inside the field.
+  const box = el('div', { className: 'field' });
+  if (area.parentNode) area.replaceWith(box);
+  box.append(area, label);
   const show = () => {
     thumbs.replaceChildren(...imageNames(area.value).map((name) => { const img = el('img', { alt: 'Attached image' }); img.dataset.image = name; return img; }));
     thumbs.hidden = !thumbs.children.length;
@@ -143,7 +149,7 @@ export function attach(area, thumbs) {
     add(event.dataTransfer.files);
   });
   show();
-  return label;
+  return box;
 }
 
 // The colors of the page, for the frames of html blocks.
