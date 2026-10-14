@@ -94,10 +94,12 @@ export function loadImages(root) {
 }
 
 // Opens the image in the lightbox, with the other loaded images of the same memo (or of the same row of thumbnails).
+// The thumbnails of an unsent reply are in the memo too, but they are not part of its images.
 function zoom(img) {
   if (!img.src) return;
-  const group = img.closest('.memo, .thumbs') || img.parentElement;
-  const images = [...group.querySelectorAll('img[data-image]')].filter((i) => i.src);
+  const group = img.closest('.thumbs') || img.closest('.memo') || img.parentElement;
+  const draft = group.matches('.thumbs');
+  const images = [...group.querySelectorAll('img[data-image]')].filter((i) => i.src && (draft || !i.closest('.thumbs')));
   openLightbox(images, Math.max(0, images.indexOf(img)), el);
 }
 

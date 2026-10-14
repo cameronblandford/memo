@@ -197,3 +197,13 @@ test('the lightbox steps round the images of a memo, and a swipe must be long an
   assert.equal(swipeStep(-30, 0), 0, 'a short move does nothing');
   assert.equal(swipeStep(-80, 70), 0, 'a move that is mostly down does nothing');
 });
+
+test('the Inbox keys do not act behind the lightbox, and draft thumbnails are not part of the memo images', async () => {
+  const box = (await get('/ui/lightbox.js')).text;
+  // The Inbox listens for its keys on the document. The dialog stops each key before it gets there.
+  assert.match((await get('/inbox')).text, /document\.addEventListener\('keydown'/);
+  assert.match(box, /addEventListener\('keydown', \(event\) => \{\s*(\/\/[^\n]*\n\s*)*event\.stopPropagation\(\);/);
+  const common = (await get('/ui/common.js')).text;
+  assert.match(common, /img\.closest\('\.thumbs'\) \|\| img\.closest\('\.memo'\)/);
+  assert.match(common, /draft \|\| !i\.closest\('\.thumbs'\)/);
+});

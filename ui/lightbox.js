@@ -57,6 +57,9 @@ export function openLightbox(images, start, el) {
   // A click on the dark area around the image closes the lightbox. A click on the image or the caption does not.
   dialog.addEventListener('click', (event) => { if (event.target === dialog || event.target === figure) dialog.close(); });
   dialog.addEventListener('keydown', (event) => {
+    // The Inbox keys (j, k, +, -, w and others) listen on the document: they must not act on the page behind.
+    // Escape still closes the dialog, because that is the default action of the browser, not a listener.
+    event.stopPropagation();
     if (!many || event.target === original) return;
     if (event.key === 'ArrowRight') show(stepIndex(index, images.length, 1));
     else if (event.key === 'ArrowLeft') show(stepIndex(index, images.length, -1));
