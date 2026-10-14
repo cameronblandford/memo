@@ -1,5 +1,6 @@
 // Code that the two Memo pages share. All text goes into the page as text nodes, never as markup.
 import { MAX_BYTES, MAX_SIDE, sendsAsIs, fit, withImage, imageNames } from '/ui/attach.js';
+import { openLightbox } from '/ui/lightbox.js';
 
 const KEY = 'memo-token';
 let memory = '';
@@ -77,8 +78,27 @@ export function loadImages(root) {
       if (url) img.src = url;
       else img.replaceWith(`[The image "${img.alt}" did not load.]`);
     });
-    img.addEventListener('click', () => { if (img.src) window.open(img.src, '_blank', 'noopener'); });
+    // The Inbox calls this again at each refresh. An image gets its listeners only one time.
+    if (img.dataset.zoom) continue;
+    img.dataset.zoom = 'on';
+    img.tabIndex = 0;
+    img.setAttribute('aria-haspopup', 'dialog');
+    img.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); zoom(img); });
+    img.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      event.stopPropagation();
+      zoom(img);
+    });
   }
+}
+
+// Opens the image in the lightbox, with the other loaded images of the same memo (or of the same row of thumbnails).
+function zoom(img) {
+  if (!img.src) return;
+  const group = img.closest('.memo, .thumbs') || img.parentElement;
+  const images = [...group.querySelectorAll('img[data-image]')].filter((i) => i.src);
+  openLightbox(images, Math.max(0, images.indexOf(img)), el);
 }
 
 // A photo from a phone can be 12 megapixels, or a type that the server does not store. The browser makes a JPEG

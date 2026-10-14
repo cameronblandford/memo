@@ -150,3 +150,50 @@ test('the send buttons show a spinner, then a check mark, and do not send two ti
 test('a check box with the focus does not stop the keys and the refresh', async () => {
   assert.match((await get('/inbox')).text, /at\.type !== 'checkbox'/);
 });
+
+test('a click on a memo image opens the lightbox, not a new tab', async () => {
+  assert.match((await get('/ui/lightbox.js')).type, /javascript/);
+  const common = (await get('/ui/common.js')).text;
+  assert.doesNotMatch(common, /window\.open/);
+  assert.match(common, /import \{ openLightbox \} from '\/ui\/lightbox\.js'/);
+  // The Inbox calls loadImages at each refresh: an image must not get a second listener.
+  assert.match(common, /if \(img\.dataset\.zoom\) continue;/);
+  // The keyboard can open it too.
+  assert.match(common, /img\.tabIndex = 0;/);
+  assert.match(common, /event\.key !== 'Enter' && event\.key !== ' '/);
+});
+
+test('the lightbox is a modal dialog with a caption, a close button, Escape, and a link to the original', async () => {
+  const box = (await get('/ui/lightbox.js')).text;
+  assert.match(box, /dialog\.showModal\(\)/);
+  assert.match(box, /caption\.textContent = img\.alt/);
+  assert.match(box, /'Open original'/);
+  assert.match(box, /target: '_blank', rel: 'noopener'/);
+  assert.match(box, /setAttribute\('aria-label', 'Close the image'\)/);
+  // Escape closes a modal dialog in the browser. All the ways to close end in the close event, which gives the focus back.
+  assert.match(box, /addEventListener\('close', \(\) => \{[^}]*opener\.focus\(\)/s);
+  assert.match(box, /event\.target === dialog \|\| event\.target === figure/);
+  assert.match(box, /'ArrowRight'/);
+  assert.match(box, /'ArrowLeft'/);
+});
+
+test('the lightbox does not block pinch-zoom on a phone', async () => {
+  const css = (await get('/ui/common.css')).text;
+  const box = (await get('/ui/lightbox.js')).text;
+  assert.doesNotMatch(css, /touch-action\s*:/);
+  assert.doesNotMatch(box, /preventDefault/);
+  assert.doesNotMatch((await get('/inbox')).text, /user-scalable|maximum-scale/);
+  assert.match(css, /\.lightbox \{[^}]*var\(--bg\)/, 'the backdrop follows the light or dark page color');
+});
+
+test('the lightbox steps round the images of a memo, and a swipe must be long and sideways', async () => {
+  const { stepIndex, swipeStep } = await import('../ui/lightbox.js');
+  assert.equal(stepIndex(0, 3, 1), 1);
+  assert.equal(stepIndex(2, 3, 1), 0);
+  assert.equal(stepIndex(0, 3, -1), 2);
+  assert.equal(stepIndex(0, 1, 1), 0);
+  assert.equal(swipeStep(-80, 10), 1, 'a move to the left goes to the next image');
+  assert.equal(swipeStep(80, -5), -1, 'a move to the right goes to the previous image');
+  assert.equal(swipeStep(-30, 0), 0, 'a short move does nothing');
+  assert.equal(swipeStep(-80, 70), 0, 'a move that is mostly down does nothing');
+});
