@@ -118,6 +118,21 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     only(c, false);
     return c.json(store.adjust(b.id, b.delta));
   });
+  app.post('/api/tag', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(store.tag(b.id, b.tag, b.on));
+  });
+  // date: YYYY-MM-DD, or null to bring the memo back now.
+  app.post('/api/postpone', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(store.postpone(b.id, b.date ?? null));
+  });
+  app.get('/api/postponed', (c) => {
+    only(c, false);
+    return c.json(store.postponed());
+  });
   app.post('/api/ack', async (c) => {
     const b = await body(c);
     only(c, store.get(b.id).sender === LIAISON);
@@ -150,7 +165,8 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
   app.get('/api/list', (c) => {
     const to = c.req.query('to');
     only(c, to === LIAISON);
-    return c.json(store.list(to));
+    // The client shows the postponed memos of the owner too, with their return time.
+    return c.json(store.list(to, { withPostponed: true }));
   });
   app.get('/api/news', (c) => {
     const who = c.req.query('for');
@@ -166,7 +182,13 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
   app.get('/api/queue', (c) => {
     only(c, false);
     const memos = store.list(owner);
-    return c.json({ memos, ticks: ticksOn ? placeTicks(memos, ticks.due(), dueSoon(now())) : [] });
+    return c.json({
+      memos,
+      ticks: ticksOn ? placeTicks(memos, ticks.due(), dueSoon(now())) : [],
+      // For the "Postponed (n)" button, and for the dates of the postpone picker.
+      postponed: store.postponed().length,
+      timeZone: store.timeZone,
+    });
   });
   const needTicks = () => {
     if (!ticksOn) throw new MemoError(400, 'Ticks are off. To use them, set MEMO_TICKS=1 in .env and start the server again.');

@@ -11,9 +11,27 @@ export class MemoError extends Error {
 const MAX_TEXT = 20000;
 const MAX_NOTE = 4000;
 
+// A tag is a short lowercase word, for example work, money, or home-repair. A memo has 8 tags or fewer.
+const TAG = /^[a-z][a-z0-9-]{0,23}$/;
+const MAX_TAGS = 8;
+export const POSTPONE_HOUR = 9;
+
+// The time (ISO, UTC) of 9:00 on the date YYYY-MM-DD in the time zone. A postponed memo comes back then.
+export function returnTime(date, timeZone) {
+  const [y, m, d] = date.split('-').map(Number);
+  const guess = Date.UTC(y, m - 1, d, POSTPONE_HOUR);
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).formatToParts(new Date(guess)).map((x) => [x.type, x.value]));
+  // The difference between the clock in the zone and UTC at that time.
+  const offset = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - guess;
+  return new Date(guess - offset).toISOString();
+}
+
 // forwardTo: the names that memo forward can send to (the long agents).
 // owner: the name of the person who owns the queue (MEMO_OWNER). It is one of the names.
-export function createStore(db, { names, owner = 'owner', forwardTo = names.filter((n) => n !== owner && n !== 'discord'), now = () => new Date() }) {
+// timeZone: the zone of the owner. A postponed memo comes back at 9:00 there.
+export function createStore(db, { names, owner = 'owner', forwardTo = names.filter((n) => n !== owner && n !== 'discord'), now = () => new Date(), timeZone = 'America/New_York' }) {
   const ts = () => now().toISOString();
   const plain = (row) => (row ? { ...row } : row);
 
@@ -41,11 +59,27 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return v;
   }
 
+  // One tag, or a list of tags, from a request. Gives the clean list, sorted and with no duplicates.
+  function checkTags(v) {
+    if (v === undefined || v === null || v === '') return [];
+    const list = (Array.isArray(v) ? v : [v]).map((t) => (typeof t === 'string' ? t.trim().toLowerCase() : t));
+    for (const t of list) {
+      if (typeof t !== 'string' || !TAG.test(t)) {
+        throw new MemoError(400, 'A tag must be one lowercase word: a-z, 0-9 and "-", 24 characters or fewer, starting with a letter.');
+      }
+    }
+    const tags = [...new Set(list)].sort();
+    if (tags.length > MAX_TAGS) throw new MemoError(400, `A memo can have ${MAX_TAGS} tags or fewer.`);
+    return tags;
+  }
+
   // The notes of a memo, oldest first. A memo with no notes has no `notes` field, so an old client sees no change.
+  // The tags column is text in the database and a list in each answer.
   const notesOf = (id) => db.prepare('SELECT id, author, text, created, read FROM notes WHERE memo_id = ? ORDER BY id').all(id).map(plain);
   function withNotes(row) {
     const notes = notesOf(row.id);
-    return notes.length ? { ...row, notes } : { ...row };
+    const memo = { ...row, tags: row.tags ? row.tags.split(',') : [] };
+    return notes.length ? { ...memo, notes } : memo;
   }
 
   function get(id) {
@@ -69,7 +103,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     ).all(sender).map(plain);
   }
 
-  function send({ from, to, text, impact, effort, due, trusted } = {}) {
+  function send({ from, to, text, impact, effort, due, trusted, tags } = {}) {
     checkParty('from', from, names);
     checkParty('to', to, names.filter((n) => n !== 'discord'));
     const body = checkText('text', text);
@@ -85,10 +119,11 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
       effort = null;
     }
     const d = checkDue(due);
+    const t = checkTags(tags);
     const r = db.prepare(
       // seen is 0 here and not from the column default: an older database has the default 1 for its old memos.
-      'INSERT INTO memos (sender, recipient, text, impact, effort, due, trusted, created, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
-    ).run(from, to, body, impact, effort, d, trusted ? 1 : 0, ts());
+      'INSERT INTO memos (sender, recipient, text, impact, effort, due, trusted, created, seen, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)',
+    ).run(from, to, body, impact, effort, d, trusted ? 1 : 0, ts(), t.join(','));
     return { memo: get(Number(r.lastInsertRowid)), corrections: to === owner ? corrections(from) : [] };
   }
 
@@ -196,10 +231,53 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return sent;
   }
 
-  function list(to) {
+  // Adds (on: true) or removes (on: false) one tag of a memo to the owner. The memo can be open or closed.
+  function tag(id, name, on) {
+    const c = get(id);
+    if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} has tags.`);
+    if (typeof on !== 'boolean') throw new MemoError(400, 'on must be true or false.');
+    const [t] = checkTags(name);
+    if (!t) throw new MemoError(400, 'tag is necessary.');
+    const tags = on ? checkTags([...c.tags, t]) : c.tags.filter((x) => x !== t);
+    db.prepare('UPDATE memos SET tags = ? WHERE id = ?').run(tags.join(','), c.id);
+    return get(c.id);
+  }
+
+  // Takes an open memo to the owner out of the Inbox until 9:00 on the date (YYYY-MM-DD) in the owner's zone.
+  // date null: the memo comes back now. A postpone is not an answer: the sender gets no news from it.
+  function postpone(id, date) {
+    const c = getOpen(id);
+    if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} can be postponed.`);
+    if (date === null) {
+      db.prepare('UPDATE memos SET until = NULL WHERE id = ?').run(c.id);
+      return get(c.id);
+    }
+    const day = checkDue(date);
+    if (!day) throw new MemoError(400, 'date must be a date in the form YYYY-MM-DD, or null to bring the memo back now.');
+    const until = returnTime(day, timeZone);
+    if (until <= ts()) throw new MemoError(400, `The date must be in the future: 9:00 on ${day} has passed.`);
+    db.prepare('UPDATE memos SET until = ? WHERE id = ?').run(until, c.id);
+    return get(c.id);
+  }
+
+  // A postponed memo whose time has come goes back to the Inbox as new, at the top until the owner sees it.
+  // SET uses the old value of until for back.
+  const wake = () => db.prepare('UPDATE memos SET back = until, until = NULL, seen = 0 WHERE until IS NOT NULL AND until <= ?').run(ts());
+
+  // The open memos to a name. For the owner, a postponed memo is not in the list, unless withPostponed.
+  function list(to, { withPostponed = false } = {}) {
     checkParty('to', to, names);
-    const rows = db.prepare(`SELECT * FROM memos WHERE recipient = ? AND state = 'open' ORDER BY id`).all(to).map(withNotes);
+    wake();
+    const rows = db.prepare(`SELECT * FROM memos WHERE recipient = ? AND state = 'open' ORDER BY id`).all(to)
+      .filter((r) => withPostponed || !r.until).map(withNotes);
     return to === owner ? sortQueue(rows, now()) : rows;
+  }
+
+  // The postponed memos of the owner, the first to come back first.
+  function postponed() {
+    wake();
+    return db.prepare(`SELECT * FROM memos WHERE recipient = ? AND state = 'open' AND until IS NOT NULL ORDER BY until, id`)
+      .all(owner).map(withNotes);
   }
 
   function news(who) {
@@ -222,5 +300,5 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     };
   }
 
-  return { get, send, reply, close, edit, note, seen, check, adjust, ack, forward, list, news, corrections, counts };
+  return { get, send, reply, close, edit, note, seen, check, adjust, ack, forward, tag, postpone, postponed, list, news, corrections, counts, timeZone };
 }

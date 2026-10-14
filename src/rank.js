@@ -17,9 +17,13 @@ export function dueSoon(now = new Date()) {
   return (c) => !!c.due && c.due <= last;
 }
 
+// A postponed memo that came back goes above all others until the owner sees it.
+const returned = (c) => !!c.back && c.seen === 0;
+
 export function sortQueue(memos, now = new Date()) {
   const soon = dueSoon(now);
   return [...memos].sort((a, b) => {
+    if (returned(a) !== returned(b)) return returned(a) ? -1 : 1;
     if (soon(a) !== soon(b)) return soon(a) ? -1 : 1;
     if (soon(a) && a.due !== b.due) return a.due < b.due ? -1 : 1;
     const [ai, aw] = parts(a);

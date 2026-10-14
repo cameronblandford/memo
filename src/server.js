@@ -35,6 +35,8 @@ const store = createStore(db, {
   owner,
   names: [owner, 'discord', ...config.map((a) => a.name)],
   forwardTo: config.filter((a) => a.kind !== 'short').map((a) => a.name),
+  // A postponed memo comes back at 9:00 in this zone.
+  timeZone: process.env.MEMO_TZ || 'America/New_York',
 });
 const agents = createAgents({ db, config, root, owner, tmux: realTmux(), counts: store.counts });
 const images = createImages(join(dirname(dbPath), 'images'));
