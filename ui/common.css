@@ -10,9 +10,10 @@ body { margin: 0 auto; max-width: 44rem; padding: 1rem; background: var(--bg); c
 header { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem; }
 header h1 { margin: 0; font-size: 1.4rem; }
 header a { margin-left: auto; color: var(--dim); font-size: .9rem; }
-#work-only { margin-left: auto; padding: .15rem .6rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
-#work-only + a { margin-left: 0; }
-#work-only[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+/* The filter of the top bar. It has the accent color when it hides memos. */
+#filter { margin-left: auto; max-width: 9rem; padding: .15rem .5rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
+#filter + a { margin-left: 0; }
+#filter.on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
 .memo { scroll-margin: .75rem 0; }
 #count, .dim, footer { color: var(--dim); font-size: .9rem; }
 #note { margin: 0 0 1rem; padding: .5rem .75rem; border: 1px solid var(--warn); border-radius: .5rem; color: var(--warn); }
@@ -133,3 +134,18 @@ button:hover { border-color: var(--accent); }
 details summary { cursor: pointer; color: var(--dim); font-size: .9rem; }
 footer { margin-top: 1.5rem; }
 [hidden] { display: none !important; }
+/* Tags and postpone on a memo: small chips under the meta line, and a panel under them when the owner opens one. */
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; margin: .3rem 0 .4rem; }
+.chips button { padding: .05rem .5rem; border-radius: 1rem; color: var(--dim); font-size: .8rem; }
+.chip { display: inline-flex; align-items: center; padding: 0 0 0 .5rem; border: 1px solid var(--accent); border-radius: 1rem; color: var(--accent); font-size: .8rem; }
+.chips .chip button { padding: 0 .4rem; border: 0; background: none; color: inherit; }
+.panel { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin: 0 0 .6rem; padding: .5rem; background: var(--bg); border: 1px solid var(--line); border-radius: .5rem; font-size: .9rem; }
+.panel input[type="text"] { width: 9rem; }
+.panel .pick { display: inline-flex; gap: .4rem; }
+.panel .warn { flex-basis: 100%; margin: 0; color: var(--warn); }
+/* The postponed memos, under the Inbox. */
+#later { margin-top: 1rem; }
+#later-toggle { color: var(--dim); font-size: .9rem; }
+.later-row { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; padding: .5rem 0; border-bottom: 1px solid var(--line); }
+.later-row .line { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+.later-row button { padding: .2rem .6rem; font-size: .85rem; }

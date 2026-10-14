@@ -6,7 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { imageNames } from '../ui/attach.js';
 
 const USAGE = `Usage:
-  memo send --from <name> --to <name> [--impact 1-5 --effort micro|short|hour|half-day|day] [--due YYYY-MM-DD] [--] <text>
+  memo send --from <name> --to <name> [--impact 1-5 --effort micro|short|hour|half-day|day] [--due YYYY-MM-DD] [--tag <tag> ...] [--] <text>
+  memo tag <id> <tag> [<tag> ...]
+  memo untag <id> <tag> [<tag> ...]
+  memo postpone <id> <YYYY-MM-DD> | memo postpone <id> now
   memo reply <id> <text>
   memo close <id> [<text>]
   memo edit <id> [--] <new text>
@@ -70,7 +73,9 @@ async function call(path, body, { soft = false } = {}) {
   return data;
 }
 
-const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by'];
+const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by', 'tag'];
+// An option that can come more than one time. Its value is a list.
+const REPEATED = ['tag'];
 function parse(argv) {
   const flags = {};
   const rest = [];
@@ -81,7 +86,8 @@ function parse(argv) {
       const key = a.slice(2);
       if (!OPTIONS.includes(key)) fail(`${a} is not a known option. Put -- before text that starts with two hyphens.`);
       if (i + 1 >= argv.length) fail(`${a} needs a value.`);
-      flags[key] = argv[++i];
+      if (REPEATED.includes(key)) (flags[key] ||= []).push(argv[++i]);
+      else flags[key] = argv[++i];
     } else rest.push(a);
   }
   return { flags, rest };
@@ -138,9 +144,20 @@ function show(c) {
   const head = `#${c.id} from ${c.sender} to ${c.recipient}, ${when(c.created)}`
     + (c.impact != null ? `, impact ${c.impact}, effort ${c.effort}` : '')
     + (c.due ? `, due ${c.due}` : '')
+    + (c.tags?.length ? `, tags ${c.tags.join(' ')}` : '')
+    + (c.until ? `, postponed until ${when(c.until)}` : '')
     + (c.state !== 'open' ? `, ${c.state}` : '');
   const notes = (c.notes || []).map((n) => `Note from ${n.author}, ${when(n.created)}${n.read ? '' : ' (not read)'}: ${n.text}\n`).join('');
   return `${head}\n${c.text}\n${notes}${c.reply ? `Reply: ${c.reply}\n` : ''}`;
+}
+
+async function setTags(on) {
+  const id = memoId(rest[0]);
+  const names = rest.slice(1);
+  if (!names.length) fail('Give one tag or more.');
+  let memo;
+  for (const tag of names) memo = await call('/api/tag', { id, tag, on });
+  console.log(`Memo ${id} has the tags: ${memo.tags.length ? memo.tags.join(' ') : 'none'}.`);
 }
 
 const commands = {
@@ -148,9 +165,9 @@ const commands = {
     const r = await call('/api/send', {
       from: need('from'), to: need('to'), text: rest.join(' '),
       impact: flags.impact === undefined ? undefined : Number(flags.impact),
-      effort: flags.effort, due: flags.due,
+      effort: flags.effort, due: flags.due, tags: flags.tag,
     });
-    console.log(`Memo ${r.memo.id} is sent to ${r.memo.recipient}.`);
+    console.log(`Memo ${r.memo.id} is sent to ${r.memo.recipient}.${r.memo.tags?.length ? ` Tags: ${r.memo.tags.join(' ')}.` : ''}`);
     if (r.corrections.length) {
       console.log('The owner changed the impact of your last memos. Use this when you select an impact:');
       for (const k of r.corrections) console.log(`  memo ${k.memo_id}: ${k.old_impact} to ${k.new_impact} ("${k.text.replace(/\s+/g, ' ')}")`);
@@ -186,6 +203,18 @@ const commands = {
     const id = memoId(rest[0]);
     const r = await call('/api/forward', { id, to: flags.to });
     console.log(`Memo ${r.memo.id} is sent to ${r.memo.recipient} with the text of memo ${id}.`);
+  },
+  // Tags of a memo to the owner, for the filter of the Inbox. For example: memo tag 42 work money
+  async tag() { await setTags(true); },
+  async untag() { await setTags(false); },
+  // Takes a memo out of the Inbox until 9:00 (the owner's time) on the date. "now" brings it back.
+  // The sender gets no news from a postpone.
+  async postpone() {
+    const id = memoId(rest[0]);
+    const date = rest[1];
+    if (!date) fail('Give the date (YYYY-MM-DD), or now.');
+    const r = await call('/api/postpone', { id, date: date === 'now' ? null : date });
+    console.log(r.until ? `Memo ${id} is postponed until ${when(r.until)}.` : `Memo ${id} is back in the Inbox.`);
   },
   async status() {
     await call('/api/status', { agent: need('as'), text: rest.join(' ') });

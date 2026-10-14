@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/ui/common.css">
 </head>
 <body>
-<header><h1>Inbox</h1><span id="count"></span><button id="work-only" type="button" aria-pressed="false" title="Show only the work tickets: the memos with a code such as SUB-6. Key: w">Work only</button><a href="/agents">Agents</a></header>
+<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><a href="/agents">Agents</a></header>
 <form id="token-form" hidden>
   <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
   <button>Save</button>
@@ -21,13 +21,18 @@
 </form>
 <main id="queue"></main>
 <p id="empty" class="dim" hidden>No memos need you now.</p>
+<section id="later" hidden>
+  <button id="later-toggle" type="button" aria-expanded="false">Postponed</button>
+  <div id="later-list" hidden></div>
+</section>
 <div id="toasts" role="status" aria-live="polite"></div>
-<footer>Keys: j and k select a memo. + and - change the impact. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
+<footer>Keys: j and k select a memo. + and - change the impact. w shows the work memos or all memos. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
 import { enterSends, fieldHeight } from '/ui/keys.js';
 import { withFeedback } from '/ui/feedback.js';
+import { shownMemos, step, countText, filterChoices, tagSuggestions, todayIn, addDays, nextMonday, dueWarning } from '/ui/filter.js';
 
 const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
@@ -35,6 +40,8 @@ const drafts = new Map(); // memo id -> reply text that is not sent
 let memos = [];
 let ticks = []; // the small actions of now, each with `before`: the id of the memo below it
 let selected = null;
+let postponedCount = 0;
+let zone = 'America/New_York'; // the owner's time zone, from the server: a postponed memo comes back at 9:00 there
 
 function select(id) {
   selected = id;
@@ -59,8 +66,21 @@ function view(memo) {
   const facts = ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}`;
   // seen 0: the owner did not see the memo. seen 2: its text changed after the owner saw it.
   const tag = memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new');
+  const tagPanel = tagEditor(memo);
+  const laterPanel = postponePicker(memo);
+  const toggle = (panel, other) => { other.hidden = true; panel.hidden = !panel.hidden; if (!panel.hidden) panel.querySelector('input, button')?.focus(); };
   const node = el('article', { className: memo.id === selected ? 'memo selected' : 'memo' },
     el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), facts, tag),
+    el('div', { className: 'chips' },
+      ...memo.tags.map((t) => {
+        const remove = button('×', () => setTag(memo, t, false), `Remove the tag ${t}`);
+        remove.setAttribute('aria-label', `Remove the tag ${t}`);
+        return el('span', { className: 'chip' }, `#${t}`, remove);
+      }),
+      button('+ tag', () => toggle(tagPanel, laterPanel), 'Add a tag to this memo'),
+      button('Postpone', () => toggle(laterPanel, tagPanel), 'Take this memo out of the Inbox until a date')),
+    tagPanel,
+    laterPanel,
     // A memo that quotes Discord text gets no frame.
     el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: (n, on, box) => check(memo.id, n, on, box) })),
     // The notes of the memo: messages between the owner and the sender while the memo is open.
@@ -80,6 +100,69 @@ function view(memo) {
   if (tag) watch.observe(node);
   return node;
 }
+
+// The field to add a tag, with the starter tags and the tags in use as suggestions. Return adds, Escape closes.
+function tagEditor(memo) {
+  const field = el('input', { type: 'text', placeholder: 'tag', autocomplete: 'off', maxLength: 24 });
+  field.setAttribute('aria-label', `New tag for memo ${memo.id}`);
+  field.setAttribute('list', `tags-${memo.id}`);
+  const options = el('datalist', { id: `tags-${memo.id}` }, ...tagSuggestions(memos, memo).map((t) => el('option', { value: t })));
+  const panel = el('div', { className: 'panel', hidden: true }, field, options,
+    button('Add', () => setTag(memo, field.value, true)), button('Cancel', () => { panel.hidden = true; }));
+  field.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); setTag(memo, field.value, true); }
+    if (event.key === 'Escape') panel.hidden = true;
+  });
+  return panel;
+}
+async function setTag(memo, name, on) {
+  const tag = name.trim().toLowerCase();
+  if (!tag) return note('Write a tag first.');
+  await run(() => api('/api/tag', { id: memo.id, tag, on }));
+}
+
+// The postpone choices: tomorrow, next Monday, or a date. The memo comes back at 9:00 on that day.
+function postponePicker(memo) {
+  const today = todayIn(zone);
+  const warn = el('p', { className: 'warn', hidden: true });
+  const showWarning = (date) => { warn.textContent = dueWarning(memo, date); warn.hidden = !warn.textContent; };
+  const picked = el('input', { type: 'date', min: addDays(today, 1), value: addDays(today, 1) });
+  picked.setAttribute('aria-label', `Date for memo ${memo.id} to come back`);
+  picked.addEventListener('input', () => showWarning(picked.value));
+  const choice = (label, date) => {
+    const b = button(`${label} (${shortDate(date)})`, () => later(memo, date), `Back on ${date} at 9:00`);
+    b.addEventListener('mouseenter', () => showWarning(date));
+    b.addEventListener('focus', () => showWarning(date));
+    return b;
+  };
+  const panel = el('div', { className: 'panel', hidden: true },
+    choice('Tomorrow', addDays(today, 1)),
+    choice('Next week', nextMonday(today)),
+    el('span', { className: 'pick' }, picked, button('Postpone', () => later(memo, picked.value), 'Back on this date at 9:00')),
+    warn);
+  return panel;
+}
+const shortDate = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+const later = (memo, date) => (date ? run(() => api('/api/postpone', { id: memo.id, date })) : note('Pick a date first.'));
+
+// The postponed memos: a button with the count, and a list with the return time and "Bring back now".
+const laterBox = document.getElementById('later');
+const laterToggle = document.getElementById('later-toggle');
+const laterList = document.getElementById('later-list');
+async function showPostponed() {
+  try {
+    const list = await api('/api/postponed');
+    laterList.replaceChildren(...list.map((m) => el('div', { className: 'later-row' },
+      el('div', { className: 'line' }, summary(m.text) || `Memo ${m.id}`),
+      el('span', { className: 'dim' }, `back ${new Date(m.until).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: zone })}`),
+      button('Bring back now', () => run(async () => { await api('/api/postpone', { id: m.id, date: null }); await showPostponed(); })))));
+  } catch (error) { note(error.message); }
+}
+laterToggle.addEventListener('click', () => {
+  laterList.hidden = !laterList.hidden;
+  laterToggle.setAttribute('aria-expanded', String(!laterList.hidden));
+  if (!laterList.hidden) showPostponed();
+});
 
 // A check box of a memo. The server changes the text of the memo, so the state is the same on each device.
 // The list on the page gets the new text, so the next load makes no new render.
@@ -136,8 +219,8 @@ function onScreen(node) {
   return shown >= Math.min(r.height, innerHeight) / 2;
 }
 function goTo(id) {
-  // A toast can be for a memo that the work filter hides.
-  if (!nodeOf(id) && workOnly && memos.some((c) => c.id === id)) setWorkOnly(false);
+  // A toast can be for a memo that the filter hides.
+  if (!nodeOf(id) && filter !== 'all' && memos.some((c) => c.id === id)) setFilter('all');
   const node = nodeOf(id);
   if (!node) return;
   select(id);
@@ -202,24 +285,25 @@ function tickView(tick) {
 }
 const doneTicks = new Map(); // ticks that the owner did on this page, for the done rows
 
-import { shownMemos, step, countText } from '/ui/filter.js';
-// The work filter: when it is on, the list shows only the work tickets, and no ticks. The page keeps the state.
-const WORK_KEY = 'memo-work-only';
-const workButton = document.getElementById('work-only');
-let workOnly = false;
-try { workOnly = localStorage.getItem(WORK_KEY) === '1'; } catch { /* a private window: the filter starts off */ }
-const shown = () => shownMemos(memos, workOnly);
-function setWorkOnly(on) {
-  workOnly = on;
-  try { localStorage.setItem(WORK_KEY, on ? '1' : '0'); } catch { /* a private window: the state stays in memory */ }
+// The filter of the top bar: All, Work, Personal, or one tag. With a filter, the list shows no ticks.
+// The device keeps the choice. A device that had "Work only" on starts with Work.
+const FILTER_KEY = 'memo-filter';
+const filterMenu = document.getElementById('filter');
+let filter = 'all';
+try { filter = localStorage.getItem(FILTER_KEY) || (localStorage.getItem('memo-work-only') === '1' ? 'work' : 'all'); } catch { /* a private window: All */ }
+const shown = () => shownMemos(memos, filter);
+function setFilter(next) {
+  filter = next;
+  try { localStorage.setItem(FILTER_KEY, next); } catch { /* a private window: the choice stays in memory */ }
   render();
   nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
 }
-workButton.addEventListener('click', () => { setWorkOnly(!workOnly); workButton.blur(); });
+filterMenu.addEventListener('change', () => { setFilter(filterMenu.value); filterMenu.blur(); });
 
 function render() {
   const list = shown();
-  const rows = workOnly ? [] : ticks;
+  const filtered = filter !== 'all';
+  const rows = filtered ? [] : ticks;
   if (!list.some((c) => c.id === selected)) selected = list[0]?.id ?? null;
   watch.disconnect();
   for (const timer of waiting.values()) clearTimeout(timer);
@@ -227,11 +311,14 @@ function render() {
   queue.replaceChildren(...list.map(view));
   for (const tick of rows) queue.insertBefore(tickView(tick), tick.before === null ? null : nodeOf(tick.before) || null);
   loadImages(queue);
-  workButton.setAttribute('aria-pressed', String(workOnly));
-  document.getElementById('count').textContent = countText(list.length, memos.length, workOnly);
+  filterMenu.replaceChildren(...filterChoices(memos, filter).map(([value, label]) => el('option', { value, selected: value === filter }, label)));
+  filterMenu.classList.toggle('on', filtered);
+  document.getElementById('count').textContent = countText(list.length, memos.length, filtered);
   const empty = document.getElementById('empty');
-  empty.textContent = workOnly ? 'No work tickets need you now.' : 'No memos need you now.';
+  empty.textContent = filtered ? 'No memos with this filter need you now.' : 'No memos need you now.';
   empty.hidden = list.length > 0 || rows.length > 0;
+  laterBox.hidden = !postponedCount;
+  laterToggle.textContent = `Postponed (${postponedCount})`;
 }
 
 async function load() {
@@ -243,9 +330,12 @@ async function load() {
     for (const t of data.ticks) doneTicks.delete(t.id);
     const nextTicks = [...data.ticks, ...[...doneTicks.values()]];
     // A new render makes each frame again and runs its script again, so render only when the list changed.
-    const changed = JSON.stringify([next, nextTicks]) !== JSON.stringify([memos, ticks]) || !queue.children.length;
+    const changed = JSON.stringify([next, nextTicks, data.postponed]) !== JSON.stringify([memos, ticks, postponedCount]) || !queue.children.length;
     memos = next;
     ticks = nextTicks;
+    postponedCount = data.postponed || 0;
+    if (data.timeZone) zone = data.timeZone;
+    if (!laterList.hidden) showPostponed();
     if (changed) { render(); showToasts(); }
   } catch (error) { note(error.message); }
 }
@@ -318,7 +408,7 @@ const typing = () => {
 };
 document.addEventListener('keydown', (event) => {
   if (typing() || event.metaKey || event.ctrlKey || event.altKey) return;
-  if (event.key === 'w') return setWorkOnly(!workOnly);
+  if (event.key === 'w') return setFilter(filter === 'work' ? 'all' : 'work');
   const list = shown();
   if (!list.length) return;
   if (event.key === 'j' || event.key === 'k') {

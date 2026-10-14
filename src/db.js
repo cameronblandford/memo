@@ -83,5 +83,13 @@ export function openDb(path = ':memory:') {
   if (!db.prepare('PRAGMA table_info(memos)').all().some((c) => c.name === 'seen')) {
     db.exec('ALTER TABLE memos ADD COLUMN seen INTEGER NOT NULL DEFAULT 1');
   }
+  // Tags and postpone. The old memos get no tags and are not postponed.
+  //   tags:  'money,work' (sorted; empty: no tags)
+  //   until: the time (ISO, UTC) when a postponed memo comes back to the Inbox; NULL: not postponed
+  //   back:  the time when a postponed memo came back. Until the owner sees it, it is at the top of the Inbox.
+  const memoColumns = db.prepare('PRAGMA table_info(memos)').all().map((c) => c.name);
+  if (!memoColumns.includes('tags')) db.exec("ALTER TABLE memos ADD COLUMN tags TEXT NOT NULL DEFAULT ''");
+  if (!memoColumns.includes('until')) db.exec('ALTER TABLE memos ADD COLUMN until TEXT');
+  if (!memoColumns.includes('back')) db.exec('ALTER TABLE memos ADD COLUMN back TEXT');
   return db;
 }
