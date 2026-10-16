@@ -19,13 +19,19 @@ export const POSTPONE_HOUR = 9;
 // The time (ISO, UTC) of 9:00 on the date YYYY-MM-DD in the time zone. A postponed memo comes back then.
 export function returnTime(date, timeZone) {
   const [y, m, d] = date.split('-').map(Number);
-  const guess = Date.UTC(y, m - 1, d, POSTPONE_HOUR);
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+  const wanted = Date.UTC(y, m - 1, d, POSTPONE_HOUR);
+  const format = new Intl.DateTimeFormat('en-US', {
     timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  }).formatToParts(new Date(guess)).map((x) => [x.type, x.value]));
-  // The difference between the clock in the zone and UTC at that time.
-  const offset = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - guess;
-  return new Date(guess - offset).toISOString();
+  });
+  // The difference between the clock in the zone and UTC at an instant.
+  const offsetAt = (ms) => {
+    const p = Object.fromEntries(format.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - ms;
+  };
+  // The offset at 9:00 UTC can differ from the offset at 9:00 in the zone, when a clock change falls between the two
+  // (for example in Los Angeles on the day of the spring change). So the offset is read again at the first answer.
+  const first = wanted - offsetAt(wanted);
+  return new Date(wanted - offsetAt(first)).toISOString();
 }
 
 // forwardTo: the names that memo forward can send to (the long agents).

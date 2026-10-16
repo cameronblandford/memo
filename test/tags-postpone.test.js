@@ -73,6 +73,20 @@ test('a postponed memo comes back at 9:00 New York time, in summer and in winter
   assert.equal(returnTime('2026-12-01', 'UTC'), '2026-12-01T09:00:00.000Z');
 });
 
+test('on the day of a clock change, a postponed memo still comes back at 9:00 local time', () => {
+  // The clocks change at 2:00 local time. At 9:00 UTC it is still winter time in Los Angeles and Anchorage,
+  // but at 9:00 local time it is summer time.
+  assert.equal(returnTime('2027-03-14', 'America/Los_Angeles'), '2027-03-14T16:00:00.000Z');
+  assert.equal(returnTime('2027-03-14', 'America/Anchorage'), '2027-03-14T17:00:00.000Z');
+  assert.equal(returnTime('2027-03-14', 'America/New_York'), '2027-03-14T13:00:00.000Z');
+  assert.equal(returnTime('2026-11-01', 'America/Los_Angeles'), '2026-11-01T17:00:00.000Z', 'the autumn change');
+  assert.equal(returnTime('2026-11-01', 'America/New_York'), '2026-11-01T14:00:00.000Z');
+  for (const [date, zone] of [['2027-03-14', 'America/Los_Angeles'], ['2026-11-01', 'America/Anchorage'], ['2027-03-28', 'Europe/Berlin']]) {
+    const hour = new Intl.DateTimeFormat('en-US', { timeZone: zone, hour: 'numeric', hourCycle: 'h23' }).format(new Date(returnTime(date, zone)));
+    assert.equal(Number(hour), 9, `${zone} on ${date}`);
+  }
+});
+
 test('postpone takes a memo out of the Inbox; it comes back at the top as new on the date', () => {
   const { store, clock } = makeStore();
   const big = store.send(toCam({ text: 'Big', impact: 5, effort: 'micro' })).memo;
