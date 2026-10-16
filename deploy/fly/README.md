@@ -79,6 +79,14 @@ to `/data/memo/` so that no message is lost or sent two times.
 
 Only one server can use a database. Do not start the server on the old computer while the Machine has the data.
 
+## Screenshots from a test copy
+
+The image has the system libraries of the headless browser (Chromium), so an agent can check a page change before a
+pull request. In its working copy (for example `~/work/memo-dev`), the agent installs Playwright and the browser
+(`npm i playwright@1.64.1 && npx playwright install chromium`), starts a test copy of Memo on 127.0.0.1 with a port
+that is not 3280, a test database in `/tmp`, and a new test token, and takes the screenshots there. The test copy never
+uses the live database or the live images.
+
 ## Test the image on your own computer
 
 ```sh
