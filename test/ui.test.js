@@ -216,4 +216,6 @@ test('the Inbox has a compact view with the name and the next step, and keeps th
   assert.match(page, /localStorage\.setItem\(COMPACT_KEY/);
   // A brief is not the full text, so it does not mark the memo as seen.
   assert.match(page, /if \(compact && !opened\.has\(memo\.id\)\) return briefView\(memo\)/);
+  assert.match(page, /querySelectorAll\('\.memo:not\(\.brief\)'\)/);
+  assert.match(page, /clearTimeout\(waiting\.get\(id\)\);\n  waiting\.delete\(id\);\n  old\.replaceWith/);
 });

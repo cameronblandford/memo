@@ -69,7 +69,10 @@ function toggleOpen(id) {
   const old = nodeOf(id);
   if (!memo || !old) return;
   const node = view(memo);
+  // A seen timer of the old node stops: after a collapse, only the brief is on the screen.
   watch.unobserve(old);
+  clearTimeout(waiting.get(id));
+  waiting.delete(id);
   old.replaceWith(node);
   loadImages(node);
   select(id);
@@ -238,7 +241,8 @@ const watch = new IntersectionObserver((entries) => {
 document.addEventListener('visibilitychange', () => {
   // A memo that was on the screen while the page was hidden gets a new check.
   if (document.visibilityState !== 'visible') return;
-  for (const node of queue.querySelectorAll('.memo')) if (node.querySelector('.tag')) { watch.unobserve(node); watch.observe(node); }
+  // A brief of the compact view is not the full memo, so it does not count as seen.
+  for (const node of queue.querySelectorAll('.memo:not(.brief)')) if (node.querySelector('.tag')) { watch.unobserve(node); watch.observe(node); }
 });
 async function markSeen(id) {
   try {
