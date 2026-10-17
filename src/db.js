@@ -91,5 +91,10 @@ export function openDb(path = ':memory:') {
   if (!memoColumns.includes('tags')) db.exec("ALTER TABLE memos ADD COLUMN tags TEXT NOT NULL DEFAULT ''");
   if (!memoColumns.includes('until')) db.exec('ALTER TABLE memos ADD COLUMN until TEXT');
   if (!memoColumns.includes('back')) db.exec('ALTER TABLE memos ADD COLUMN back TEXT');
+  // The brief of a memo for the compact view of the Inbox, written by the sender. NULL: no brief.
+  //   title: a name for the memo, for example "Driver license address"
+  //   next:  the next step of the owner, for example "Mail form MV-232"
+  if (!memoColumns.includes('title')) db.exec('ALTER TABLE memos ADD COLUMN title TEXT');
+  if (!memoColumns.includes('next')) db.exec('ALTER TABLE memos ADD COLUMN next TEXT');
   return db;
 }

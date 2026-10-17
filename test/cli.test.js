@@ -156,3 +156,14 @@ test('wait does not stop when a different program answers on the port', async ()
     assert.match(r.stdout, /No news for main/);
   } finally { other.close(); }
 });
+
+test('send and brief set the title and the next step of a memo', () => withServer(async ({ memo, store }) => {
+  await memo(['send', '--from', 'main', '--to', 'cam', '--impact', '2', '--effort', 'micro', '--title', 'Lamp', '--next', 'Reply real', 'Which lamp?']);
+  assert.equal(store.get(1).title, 'Lamp');
+  assert.equal(store.get(1).next, 'Reply real');
+  const r = await memo(['brief', '1', '--next', 'Reply look']);
+  assert.match(r.stdout, /Memo 1 has the brief: Lamp · next: Reply look\./);
+  assert.equal(store.get(1).title, 'Lamp');
+  assert.match((await memo(['brief', '1'])).stderr, /title, next/);
+  assert.match((await memo(['brief', '1', 'loose text'])).stderr, /--title and --next/);
+}));

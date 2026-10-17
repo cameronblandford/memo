@@ -321,3 +321,33 @@ test('a memo with no notes has no notes field', () => {
   const { s, id } = withMemo();
   assert.equal('notes' in s.get(id), false);
 });
+
+test('a memo can have a brief: a title and a next step, each one line', () => {
+  const s = makeStore();
+  const { memo } = s.send({ ...toCam, title: '  Deploy of PR 12 ', next: 'Reply deploy' });
+  assert.equal(memo.title, 'Deploy of PR 12');
+  assert.equal(memo.next, 'Reply deploy');
+  const plain = s.send(toCam).memo;
+  assert.equal(plain.title, null);
+  assert.equal(plain.next, null);
+  refuses(() => s.send({ ...toCam, title: 'two\nlines' }), 400, 'one line');
+  refuses(() => s.send({ ...toCam, title: 'x'.repeat(61) }), 400, '60 characters');
+  refuses(() => s.send({ ...toCam, next: 'x'.repeat(101) }), 400, '100 characters');
+  refuses(() => s.send({ ...toCam, next: 5 }), 400, 'must be text');
+});
+
+test('memo brief changes one part, keeps the other, and does not mark the memo updated', () => {
+  const s = makeStore();
+  const { memo } = s.send({ ...toCam, title: 'Deploy', next: 'Reply deploy' });
+  s.seen([memo.id]);
+  let m = s.brief(memo.id, { next: 'Reply wait' });
+  assert.equal(m.title, 'Deploy');
+  assert.equal(m.next, 'Reply wait');
+  assert.equal(m.seen, 1);
+  m = s.brief(memo.id, { title: '' });
+  assert.equal(m.title, null);
+  assert.equal(m.next, 'Reply wait');
+  refuses(() => s.brief(memo.id, {}), 400, 'title, next');
+  s.close(memo.id);
+  refuses(() => s.brief(memo.id, { title: 'Late' }), 409, 'closed');
+});

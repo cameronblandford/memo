@@ -12,8 +12,17 @@ header h1 { margin: 0; font-size: 1.4rem; }
 header a { margin-left: auto; color: var(--dim); font-size: .9rem; }
 /* The filter of the top bar. It has the accent color when it hides memos. */
 #filter { margin-left: auto; max-width: 9rem; padding: .15rem .5rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
-#filter + a { margin-left: 0; }
+#filter + a, #compact + a { margin-left: 0; }
 #filter.on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+/* The Compact button of the top bar. It has the accent color when the compact view is on. */
+#compact { padding: .15rem .6rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
+#compact.on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+/* A memo in the compact view: the name and the next step. */
+.memo.brief { cursor: pointer; padding: .6rem 1rem; }
+.memo.brief:hover { border-color: var(--accent); }
+.memo.brief .name { font-weight: 600; margin-top: .15rem; }
+.memo.brief .next { color: var(--dim); font-size: .95rem; margin-top: .1rem; }
+.memo.brief .next b { color: var(--accent); font-weight: 600; }
 .memo { scroll-margin: .75rem 0; }
 #count, .dim, footer { color: var(--dim); font-size: .9rem; }
 #note { margin: 0 0 1rem; padding: .5rem .75rem; border: 1px solid var(--warn); border-radius: .5rem; color: var(--warn); }

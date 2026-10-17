@@ -10,6 +10,9 @@ export class MemoError extends Error {
 
 const MAX_TEXT = 20000;
 const MAX_NOTE = 4000;
+// The brief of a memo is one short line for each part, so the compact view of the Inbox fits a phone.
+const MAX_TITLE = 60;
+const MAX_NEXT = 100;
 
 // A tag is a short lowercase word, for example work, money, or home-repair. A memo has 8 tags or fewer.
 const TAG = /^[a-z][a-z0-9-]{0,23}$/;
@@ -65,6 +68,16 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return v;
   }
 
+  // One part of a brief: one line, trimmed. Empty or missing: no value.
+  function checkLine(field, v, max) {
+    if (v === undefined || v === null) return null;
+    if (typeof v !== 'string') throw new MemoError(400, `${field} must be text.`);
+    const line = v.trim();
+    if (/[\r\n]/.test(line)) throw new MemoError(400, `${field} must be one line.`);
+    if (line.length > max) throw new MemoError(400, `${field} must have ${max} characters or fewer.`);
+    return line || null;
+  }
+
   // One tag, or a list of tags, from a request. Gives the clean list, sorted and with no duplicates.
   function checkTags(v) {
     if (v === undefined || v === null || v === '') return [];
@@ -109,7 +122,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     ).all(sender).map(plain);
   }
 
-  function send({ from, to, text, impact, effort, due, trusted, tags } = {}) {
+  function send({ from, to, text, impact, effort, due, trusted, tags, title, next } = {}) {
     checkParty('from', from, names);
     checkParty('to', to, names.filter((n) => n !== 'discord'));
     const body = checkText('text', text);
@@ -126,10 +139,12 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     }
     const d = checkDue(due);
     const t = checkTags(tags);
+    const name = checkLine('title', title, MAX_TITLE);
+    const step = checkLine('next', next, MAX_NEXT);
     const r = db.prepare(
       // seen is 0 here and not from the column default: an older database has the default 1 for its old memos.
-      'INSERT INTO memos (sender, recipient, text, impact, effort, due, trusted, created, seen, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)',
-    ).run(from, to, body, impact, effort, d, trusted ? 1 : 0, ts(), t.join(','));
+      'INSERT INTO memos (sender, recipient, text, impact, effort, due, trusted, created, seen, tags, title, next) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)',
+    ).run(from, to, body, impact, effort, d, trusted ? 1 : 0, ts(), t.join(','), name, step);
     return { memo: get(Number(r.lastInsertRowid)), corrections: to === owner ? corrections(from) : [] };
   }
 
@@ -155,6 +170,17 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     // The sender changes the text to do what a note of the owner asks. Thus the notes of the owner are read,
     // and memo wait does not give the same note again.
     db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ?').run(c.id, owner);
+    return get(c.id);
+  }
+
+  // A new brief for an open memo: the title, the next step, or both. A part that is not given stays.
+  // An empty part removes it. The memo does not show as "updated": the text is the same.
+  function brief(id, { title, next } = {}) {
+    const c = getOpen(id);
+    if (title === undefined && next === undefined) throw new MemoError(400, 'Give title, next, or both.');
+    const name = title === undefined ? c.title : checkLine('title', title, MAX_TITLE);
+    const step = next === undefined ? c.next : checkLine('next', next, MAX_NEXT);
+    db.prepare('UPDATE memos SET title = ?, next = ? WHERE id = ?').run(name, step, c.id);
     return get(c.id);
   }
 
@@ -306,5 +332,5 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     };
   }
 
-  return { get, send, reply, close, edit, note, seen, check, adjust, ack, forward, tag, postpone, postponed, list, news, corrections, counts, timeZone };
+  return { get, send, reply, close, edit, brief, note, seen, check, adjust, ack, forward, tag, postpone, postponed, list, news, corrections, counts, timeZone };
 }

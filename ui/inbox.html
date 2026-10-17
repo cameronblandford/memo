@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/ui/common.css">
 </head>
 <body>
-<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><a href="/agents">Agents</a></header>
+<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><button id="compact" type="button" aria-pressed="false" title="Show each memo as its name and its next step. A click on a memo opens it. Key: c">Compact</button><a href="/agents">Agents</a></header>
 <form id="token-form" hidden>
   <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
   <button>Save</button>
@@ -26,7 +26,7 @@
   <div id="later-list" hidden></div>
 </section>
 <div id="toasts" role="status" aria-live="polite"></div>
-<footer>Keys: j and k select a memo. + and - change the impact. w shows the work memos or all memos. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
+<footer>Keys: j and k select a memo. c shows the compact view, and o opens or closes the selected memo in it. + and - change the impact. w shows the work memos or all memos. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
@@ -48,7 +48,54 @@ function select(id) {
   for (const node of queue.children) node.classList.toggle('selected', Number(node.dataset.id) === id);
 }
 
+// The compact view: each memo is one short block with its name and the next step of the owner. The sender writes
+// the brief (memo send --title --next, or memo brief). A memo with no brief shows the first line of its text.
+// A click opens the full memo at its place. The open memos stay open until the page loads again.
+const COMPACT_KEY = 'memo-compact';
+let compact = false;
+try { compact = localStorage.getItem(COMPACT_KEY) === '1'; } catch { /* a private window: the full view */ }
+const opened = new Set(); // ids of the memos that the owner opened in the compact view
+const compactButton = document.getElementById('compact');
+function setCompact(on) {
+  compact = on;
+  try { localStorage.setItem(COMPACT_KEY, on ? '1' : '0'); } catch { /* the choice stays in memory */ }
+  render();
+  nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+}
+compactButton.addEventListener('click', () => { setCompact(!compact); compactButton.blur(); });
+function toggleOpen(id) {
+  if (opened.has(id)) opened.delete(id); else opened.add(id);
+  const memo = memos.find((m) => m.id === id);
+  const old = nodeOf(id);
+  if (!memo || !old) return;
+  const node = view(memo);
+  watch.unobserve(old);
+  old.replaceWith(node);
+  loadImages(node);
+  select(id);
+  node.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+}
+const factsOf = (memo) => ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}`;
+const newTag = (memo) => (memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'));
+function briefView(memo) {
+  const notes = memo.notes?.length || 0;
+  const node = el('article', { className: memo.id === selected ? 'memo brief selected' : 'memo brief', title: 'Open this memo' },
+    el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), factsOf(memo),
+      notes ? ` · ${notes} ${notes === 1 ? 'note' : 'notes'}` : '', newTag(memo)),
+    el('div', { className: 'name' }, memo.title || summary(memo.text) || `Memo ${memo.id}`),
+    memo.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), memo.next) : '');
+  node.dataset.id = memo.id;
+  node.tabIndex = 0;
+  node.setAttribute('role', 'button');
+  node.setAttribute('aria-expanded', 'false');
+  node.addEventListener('click', () => toggleOpen(memo.id));
+  node.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleOpen(memo.id); } });
+  return node;
+}
+
 function view(memo) {
+  // In the compact view, a memo that is not open is only its brief. The brief does not count as seen.
+  if (compact && !opened.has(memo.id)) return briefView(memo);
   const area = el('textarea', { rows: 2, placeholder: 'Reply', value: drafts.get(memo.id) || '' });
   area.setAttribute('aria-label', `Reply to memo ${memo.id}`);
   area.addEventListener('input', () => drafts.set(memo.id, area.value));
@@ -63,9 +110,9 @@ function view(memo) {
     ...(['liaison', 'discord'].includes(memo.sender) ? [] : [button('Note', (b) => addNote(memo, area.value, b), 'Send the text to the agent. The memo stays open in your Inbox.')]),
     button('Close', (b) => close(memo, b), 'Close the memo. The text in the reply field goes with it.'),
   ];
-  const facts = ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}`;
+  const facts = factsOf(memo);
   // seen 0: the owner did not see the memo. seen 2: its text changed after the owner saw it.
-  const tag = memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new');
+  const tag = newTag(memo);
   const tagPanel = tagEditor(memo);
   const laterPanel = postponePicker(memo);
   const toggle = (panel, other) => { other.hidden = true; panel.hidden = !panel.hidden; if (!panel.hidden) panel.querySelector('input, button')?.focus(); };
@@ -78,7 +125,8 @@ function view(memo) {
         return el('span', { className: 'chip' }, `#${t}`, remove);
       }),
       button('+ tag', () => toggle(tagPanel, laterPanel), 'Add a tag to this memo'),
-      button('Postpone', () => toggle(laterPanel, tagPanel), 'Take this memo out of the Inbox until a date')),
+      button('Postpone', () => toggle(laterPanel, tagPanel), 'Take this memo out of the Inbox until a date'),
+      ...(compact ? [button('Collapse', () => toggleOpen(memo.id), 'Show only the name and the next step of this memo')] : [])),
     tagPanel,
     laterPanel,
     // A memo that quotes Discord text gets no frame.
@@ -313,6 +361,8 @@ function render() {
   loadImages(queue);
   filterMenu.replaceChildren(...filterChoices(memos, filter).map(([value, label]) => el('option', { value, selected: value === filter }, label)));
   filterMenu.classList.toggle('on', filtered);
+  compactButton.classList.toggle('on', compact);
+  compactButton.setAttribute('aria-pressed', String(compact));
   document.getElementById('count').textContent = countText(list.length, memos.length, filtered);
   const empty = document.getElementById('empty');
   empty.textContent = filtered ? 'No memos with this filter need you now.' : 'No memos need you now.';
@@ -409,6 +459,7 @@ const typing = () => {
 document.addEventListener('keydown', (event) => {
   if (typing() || event.metaKey || event.ctrlKey || event.altKey) return;
   if (event.key === 'w') return setFilter(filter === 'work' ? 'all' : 'work');
+  if (event.key === 'c') return setCompact(!compact);
   const list = shown();
   if (!list.length) return;
   if (event.key === 'j' || event.key === 'k') {
@@ -417,6 +468,7 @@ document.addEventListener('keydown', (event) => {
     nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
   } else if (event.key === '+' || event.key === '=') adjust(selected, 1);
   else if (event.key === '-') adjust(selected, -1);
+  else if (event.key === 'o' && compact) toggleOpen(selected);
 });
 
 tokenForm(() => { load(); loadAgents(); });
