@@ -98,6 +98,11 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     only(c, false);
     return c.json(store.edit(b.id, b.text));
   });
+  app.post('/api/brief', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(store.brief(b.id, { title: b.title, next: b.next }));
+  });
   app.post('/api/note', async (c) => {
     const b = await body(c);
     only(c, false);

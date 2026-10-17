@@ -6,13 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { imageNames } from '../ui/attach.js';
 
 const USAGE = `Usage:
-  memo send --from <name> --to <name> [--impact 1-5 --effort micro|short|hour|half-day|day] [--due YYYY-MM-DD] [--tag <tag> ...] [--] <text>
+  memo send --from <name> --to <name> [--impact 1-5 --effort micro|short|hour|half-day|day] [--due YYYY-MM-DD] [--tag <tag> ...] [--title <name>] [--next <step>] [--] <text>
   memo tag <id> <tag> [<tag> ...]
   memo untag <id> <tag> [<tag> ...]
   memo postpone <id> <YYYY-MM-DD> | memo postpone <id> now
   memo reply <id> <text>
   memo close <id> [<text>]
   memo edit <id> [--] <new text>
+  memo brief <id> [--title <name>] [--next <step>]
   memo note <id> --from <name> [--] <text>
   memo ack <id> [<id> ...]
   memo forward <id> [--to <agent>]
@@ -25,7 +26,7 @@ const USAGE = `Usage:
   memo tick add --impact 1-5 --effort <effort> [--days mon,wed,fri] [--every <days>] [--after HH:MM] [--by HH:MM] [--] <text>
   memo tick set <id> [--impact ...] [--effort ...] [--days ...] [--every ...] [--after ...] [--by ...] [<new text>]
   memo tick list | memo tick remove <id> | memo tick log [<days>]
-A memo to the owner needs --impact and --effort.`;
+A memo to the owner needs --impact and --effort. --title and --next are the brief for the compact view of the Inbox.`;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 function fileEnv() {
@@ -73,7 +74,7 @@ async function call(path, body, { soft = false } = {}) {
   return data;
 }
 
-const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by', 'tag'];
+const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by', 'tag', 'title', 'next'];
 // An option that can come more than one time. Its value is a list.
 const REPEATED = ['tag'];
 function parse(argv) {
@@ -165,7 +166,7 @@ const commands = {
     const r = await call('/api/send', {
       from: need('from'), to: need('to'), text: rest.join(' '),
       impact: flags.impact === undefined ? undefined : Number(flags.impact),
-      effort: flags.effort, due: flags.due, tags: flags.tag,
+      effort: flags.effort, due: flags.due, tags: flags.tag, title: flags.title, next: flags.next,
     });
     console.log(`Memo ${r.memo.id} is sent to ${r.memo.recipient}.${r.memo.tags?.length ? ` Tags: ${r.memo.tags.join(' ')}.` : ''}`);
     if (r.corrections.length) {
@@ -182,6 +183,13 @@ const commands = {
     const id = memoId(rest[0]);
     await call('/api/edit', { id, text: rest.slice(1).join(' ') });
     console.log(`Memo ${id} has the new text.`);
+  },
+  // The brief of an open memo for the compact view of the Inbox. An empty value removes that part.
+  async brief() {
+    const id = memoId(rest[0]);
+    if (rest.length > 1) fail('Give the brief with --title and --next.');
+    const m = await call('/api/brief', { id, title: flags.title, next: flags.next });
+    console.log(`Memo ${id} has the brief: ${m.title || '(no title)'} · next: ${m.next || '(no next step)'}.`);
   },
   // A message in an open memo to the owner. The memo stays open.
   async note() {

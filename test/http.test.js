@@ -200,3 +200,15 @@ test('the note route keeps the memo open, and the liaison token cannot use it', 
   assert.equal((await call(app, '/api/queue')).data.memos[0].notes.length, 1);
   assert.equal((await call(app, '/api/ack', { id })).data.notes[0].read, 1);
 });
+
+test('the brief route sets the brief, and the liaison token cannot use it', async () => {
+  const { app } = makeApp();
+  await call(app, '/api/send', { ...toCam, title: 'Deploy' });
+  const r = await call(app, '/api/brief', { id: 1, next: 'Reply deploy' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.title, 'Deploy');
+  assert.equal(r.data.next, 'Reply deploy');
+  const queue = await call(app, '/api/queue');
+  assert.equal(queue.data.memos[0].next, 'Reply deploy');
+  assert.equal((await call(app, '/api/brief', { id: 1, title: 'X' }, LIAISON_TOKEN)).status, 403);
+});

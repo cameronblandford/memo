@@ -207,3 +207,15 @@ test('the Inbox keys do not act behind the lightbox, and draft thumbnails are no
   assert.match(common, /img\.closest\('\.thumbs'\) \|\| img\.closest\('\.memo'\)/);
   assert.match(common, /draft \|\| !i\.closest\('\.thumbs'\)/);
 });
+
+test('the Inbox has a compact view with the name and the next step, and keeps the choice on the device', async () => {
+  const page = (await get('/inbox')).text;
+  assert.match(page, /id="compact"/);
+  assert.match(page, /memo\.title \|\| summary\(memo\.text\)/);
+  assert.match(page, /'Next: '/);
+  assert.match(page, /localStorage\.setItem\(COMPACT_KEY/);
+  // A brief is not the full text, so it does not mark the memo as seen.
+  assert.match(page, /if \(compact && !opened\.has\(memo\.id\)\) return briefView\(memo\)/);
+  assert.match(page, /querySelectorAll\('\.memo:not\(\.brief\)'\)/);
+  assert.match(page, /clearTimeout\(waiting\.get\(id\)\);\n  waiting\.delete\(id\);\n  old\.replaceWith/);
+});
