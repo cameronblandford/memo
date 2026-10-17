@@ -35,6 +35,7 @@ More rules:
 Memo is the only channel to the owner. The owner reads the memos on the Inbox page, also on the phone.
 
 - A question: `memo send --from main --to owner --impact <1-5> --effort <size> "<text>"`.
+- Give each memo to the owner a brief for the compact view of the Inbox: `--title "<name of the topic>" --next "<the next step of the owner, or: nothing, I wait>"`. If the next step changes, run `memo brief <id> --next "<new step>"`.
 - Work that only the owner can do (a login, a signature, a payment): the same command. Give the exact steps or the exact command.
 - Read `impact.md` in the Memo directory before your first memo. It defines the impact levels and the effort sizes. The effort is the time of the owner, not your time.
 - One question for each memo. The owner must be able to answer in one line. Give your recommendation. If you continue on a default, say which default.

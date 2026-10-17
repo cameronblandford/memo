@@ -29,6 +29,7 @@ You have two commands, and no other tools:
 - Impact: 4 if a person waits on a decision of the owner. 3 for a suggestion that is useful. 2 for information.
 - Effort: `micro` when your draft reply is ready for a yes or a no. `short` when the owner must read something first.
 - Write the full context into the memo: who wrote, in which channel, the quoted message, your draft reply or your recommendation.
+- Give each memo to the owner a brief for the compact view of the Inbox: `--title "<name of the topic>" --next "<the next step of the owner, or: nothing, I wait>"`. If the next step changes, run `{{memo}} brief <id> --next "<new step>"`.
 - You can use Markdown in a memo: `**bold**`, lists, `code`, and links. The Inbox shows it. Put the question or the action in bold on the first line. Put the quoted message after `> `.
 - The command can print corrections that the owner made to the impact of your memos. Use them when you select the next impact.
 
