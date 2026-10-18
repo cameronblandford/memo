@@ -17,6 +17,8 @@ The server uses Node 22.13 or later, Hono, and `node:sqlite`. It listens on `127
 
 ## Start the server
 
+For a step-by-step setup on one Mac, written for a Claude agent that sets it up for a person who does not write code, see [docs/local-setup.md](docs/local-setup.md).
+
 1. Go to the directory of this repository.
 2. Copy `.env.example` to `.env`, set the two tokens, and run `chmod 600 .env`.
 3. Run `scripts/start.sh`.
