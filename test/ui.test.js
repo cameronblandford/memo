@@ -232,3 +232,12 @@ test('the Inbox has a Shorten button on memos from an agent, which adds the fixe
   assert.equal(compactAsked({ notes: [{ text: 'Add the price.', read: 0 }] }), false);
   assert.equal(compactAsked({}), false);
 });
+
+test('the Inbox hides the Shorten note: it is only a signal to the agent', async () => {
+  const { COMPACT_NOTE, shownNotes } = await import('../ui/filter.js');
+  const memo = { notes: [{ author: 'cam', text: COMPACT_NOTE, read: 0 }, { author: 'main', text: 'Done.', read: 0 }] };
+  assert.deepEqual(shownNotes(memo).map((n) => n.text), ['Done.']);
+  assert.deepEqual(shownNotes({}), []);
+  const page = (await get('/inbox')).text;
+  assert.match(page, /shownNotes\(memo\)\.length \? el\('div', \{ className: 'notes' \}/);
+});

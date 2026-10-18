@@ -11,6 +11,8 @@ export const STARTER_TAGS = ['work', 'admin', 'health', 'money', 'home', 'code',
 export const COMPACT_NOTE = 'Shorten this memo: close it and send a new memo with a short summary, the open items (with check boxes), and the next step. Keep the impact, the effort, and the tags. Use: memo compact <id>';
 // The memo has a Shorten note that the sender did not read yet: the button shows "Asked".
 export const compactAsked = (memo) => (memo.notes || []).some((n) => n.text === COMPACT_NOTE && !n.read);
+// The notes that the Inbox shows. The Shorten note is only a signal to the agent, so the Inbox hides it.
+export const shownNotes = (memo) => (memo.notes || []).filter((n) => n.text !== COMPACT_NOTE);
 
 // The filters of the top bar: 'all', 'work', 'personal' (not work), or 'tag:<name>'.
 export function matches(memo, filter) {
