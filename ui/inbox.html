@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/ui/common.css">
 </head>
 <body>
-<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><button id="compact" type="button" aria-pressed="false" title="Show each memo as its name and its next step. A click on a memo opens it. Key: c">Compact</button><a href="/agents">Agents</a></header>
+<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><button id="compact" type="button" aria-pressed="false" title="Collapse all memos to their name and next step. A click on a memo opens it. A click here when all are collapsed shows all memos in full. Key: c">Collapse</button><a href="/agents">Agents</a></header>
 <form id="token-form" hidden>
   <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
   <button>Save</button>
@@ -26,7 +26,7 @@
   <div id="later-list" hidden></div>
 </section>
 <div id="toasts" role="status" aria-live="polite"></div>
-<footer>Keys: j and k select a memo. c shows the compact view, and o opens or closes the selected memo in it. + and - change the impact. w shows the work memos or all memos. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
+<footer>Keys: j and k select a memo. c collapses all memos (or shows them in full), and o opens or closes the selected memo in it. + and - change the impact. w shows the work memos or all memos. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
@@ -62,7 +62,14 @@ function setCompact(on) {
   render();
   nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
 }
-compactButton.addEventListener('click', () => { setCompact(!compact); compactButton.blur(); });
+// The button always collapses all memos, also the memos that the owner opened. When all memos are already
+// collapsed, it shows all memos in full, so that the full view stays one click away on a phone.
+function collapseAll() {
+  if (compact && !opened.size) return setCompact(false);
+  opened.clear();
+  setCompact(true);
+}
+compactButton.addEventListener('click', () => { collapseAll(); compactButton.blur(); });
 function toggleOpen(id) {
   if (opened.has(id)) opened.delete(id); else opened.add(id);
   const memo = memos.find((m) => m.id === id);
@@ -463,7 +470,7 @@ const typing = () => {
 document.addEventListener('keydown', (event) => {
   if (typing() || event.metaKey || event.ctrlKey || event.altKey) return;
   if (event.key === 'w') return setFilter(filter === 'work' ? 'all' : 'work');
-  if (event.key === 'c') return setCompact(!compact);
+  if (event.key === 'c') return collapseAll();
   const list = shown();
   if (!list.length) return;
   if (event.key === 'j' || event.key === 'k') {
