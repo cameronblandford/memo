@@ -153,7 +153,7 @@ function view(memo) {
   return node;
 }
 
-// The Compact button asks the sender, with a fixed note, to close the memo and send a short new memo:
+// The Shorten button asks the sender, with a fixed note, to close the memo and send a short new memo:
 // a summary, the open items, and the next step. Only for a memo from an agent that reads notes.
 const canCompact = (memo) => !['__OWNER__', 'liaison', 'discord'].includes(memo.sender);
 function compactButtonOf(memo) {
@@ -162,7 +162,7 @@ function compactButtonOf(memo) {
     asked.disabled = true;
     return asked;
   }
-  return button('Compact', (b) => send(b, () => api('/api/note', { id: memo.id, from: '__OWNER__', text: COMPACT_NOTE })),
+  return button('Shorten', (b) => send(b, () => api('/api/note', { id: memo.id, from: '__OWNER__', text: COMPACT_NOTE })),
     'Ask the agent to close this memo and send a short new memo: a summary, the open items, and the next step');
 }
 

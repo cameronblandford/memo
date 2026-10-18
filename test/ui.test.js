@@ -220,10 +220,10 @@ test('the Inbox has a compact view with the name and the next step, and keeps th
   assert.match(page, /clearTimeout\(waiting\.get\(id\)\);\n  waiting\.delete\(id\);\n  old\.replaceWith/);
 });
 
-test('the Inbox has a Compact button on memos from an agent, which adds the fixed note and then shows Asked', async () => {
+test('the Inbox has a Shorten button on memos from an agent, which adds the fixed note and then shows Asked', async () => {
   const { COMPACT_NOTE, compactAsked } = await import('../ui/filter.js');
   const page = (await get('/inbox')).text;
-  assert.match(page, /button\('Compact', \(b\) => send\(b, \(\) => api\('\/api\/note', \{ id: memo\.id, from: 'cam', text: COMPACT_NOTE \}\)\)/);
+  assert.match(page, /button\('Shorten', \(b\) => send\(b, \(\) => api\('\/api\/note', \{ id: memo\.id, from: 'cam', text: COMPACT_NOTE \}\)\)/);
   assert.match(page, /const canCompact = \(memo\) => !\['cam', 'liaison', 'discord'\]\.includes\(memo\.sender\)/);
   assert.match(page, /button\('Asked'/);
   assert.match(COMPACT_NOTE, /Use: memo compact <id>$/);

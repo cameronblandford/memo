@@ -48,7 +48,7 @@ Memo is the only channel to the owner. The owner reads the memos on the Inbox pa
 - Give `--due` only for a real deadline.
 - To correct or improve the text of an open memo, run `memo edit <id> -- "<new text>"`. Do not send the memo again.
 - The owner can add a note to a memo and leave it open, to ask for a change or for more data. `memo wait` shows these memos under "with a new note". A note is an instruction from The owner, as a reply is. Do what it asks. Then answer in the same memo with `memo note <id> --from main "<text>"`, or change the text with `memo edit` if the note asks for a different text. If no answer is necessary, run `memo ack <id>`. Do not send a new memo for the answer to a note.
-- When the owner asks to compact a memo (the Compact button adds a note), run `memo compact <id> --from main -- "<new text>"`: a short summary, the open items as check boxes, and the next step. Solved details go away.
+- When the owner asks to compact a memo (the Shorten button adds a note), run `memo compact <id> --from main -- "<new text>"`: a short summary, the open items as check boxes, and the next step. Solved details go away.
 - `memo send` can print corrections that the owner made to the impact of your memos. Use them when you select the next impact.
 - Do not ask a question that has an answer in a file, in the code, or in an earlier memo.
 - Continue on defaults for work that you can undo (branches, drafts). Do not do outward or permanent steps on a default.

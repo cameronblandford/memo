@@ -7,9 +7,9 @@ export const isWork = (memo) => WORK.test(memo.text || '') || (memo.tags || []).
 // The tags that the Inbox suggests when the owner adds a tag. The owner can type any other tag.
 export const STARTER_TAGS = ['work', 'admin', 'health', 'money', 'home', 'code', 'social'];
 
-// The note of the Compact button. The sender then closes the memo and sends a short new memo (memo compact).
-export const COMPACT_NOTE = 'Compact this memo: close it and send a new memo with a short summary, the open items (with check boxes), and the next step. Keep the impact, the effort, and the tags. Use: memo compact <id>';
-// The memo has a Compact note that the sender did not read yet: the button shows "Asked".
+// The note of the Shorten button. The sender then closes the memo and sends a short new memo (memo compact).
+export const COMPACT_NOTE = 'Shorten this memo: close it and send a new memo with a short summary, the open items (with check boxes), and the next step. Keep the impact, the effort, and the tags. Use: memo compact <id>';
+// The memo has a Shorten note that the sender did not read yet: the button shows "Asked".
 export const compactAsked = (memo) => (memo.notes || []).some((n) => n.text === COMPACT_NOTE && !n.read);
 
 // The filters of the top bar: 'all', 'work', 'personal' (not work), or 'tag:<name>'.
