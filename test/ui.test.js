@@ -219,3 +219,25 @@ test('the Inbox has a compact view with the name and the next step, and keeps th
   assert.match(page, /querySelectorAll\('\.memo:not\(\.brief\)'\)/);
   assert.match(page, /clearTimeout\(waiting\.get\(id\)\);\n  waiting\.delete\(id\);\n  old\.replaceWith/);
 });
+
+test('the Inbox has a Shorten button on memos from an agent, which adds the fixed note and then shows Asked', async () => {
+  const { COMPACT_NOTE, compactAsked } = await import('../ui/filter.js');
+  const page = (await get('/inbox')).text;
+  assert.match(page, /button\('Shorten', \(b\) => send\(b, \(\) => api\('\/api\/note', \{ id: memo\.id, from: 'cam', text: COMPACT_NOTE \}\)\)/);
+  assert.match(page, /const canCompact = \(memo\) => !\['cam', 'liaison', 'discord'\]\.includes\(memo\.sender\)/);
+  assert.match(page, /button\('Asked'/);
+  assert.match(COMPACT_NOTE, /Use: memo compact <id>$/);
+  assert.equal(compactAsked({ notes: [{ text: COMPACT_NOTE, read: 0 }] }), true);
+  assert.equal(compactAsked({ notes: [{ text: COMPACT_NOTE, read: 1 }] }), false, 'after the agent reads the note, the owner can ask again');
+  assert.equal(compactAsked({ notes: [{ text: 'Add the price.', read: 0 }] }), false);
+  assert.equal(compactAsked({}), false);
+});
+
+test('the Inbox hides the Shorten note: it is only a signal to the agent', async () => {
+  const { COMPACT_NOTE, shownNotes } = await import('../ui/filter.js');
+  const memo = { notes: [{ author: 'cam', text: COMPACT_NOTE, read: 0 }, { author: 'main', text: 'Done.', read: 0 }] };
+  assert.deepEqual(shownNotes(memo).map((n) => n.text), ['Done.']);
+  assert.deepEqual(shownNotes({}), []);
+  const page = (await get('/inbox')).text;
+  assert.match(page, /shownNotes\(memo\)\.length \? el\('div', \{ className: 'notes' \}/);
+});

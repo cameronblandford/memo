@@ -199,6 +199,21 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     if (from !== owner) db.prepare('UPDATE memos SET seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?').run(c.id);
     return get(c.id);
   }
+  // The sender makes a short new memo from an open memo to the owner, when the owner asks for it (the Compact button).
+  // The new memo has the new text and the impact, effort, due date, and tags of the old one. It shows as new.
+  // The old memo closes with a link to the new one. It is acked, so the sender gets no result for it.
+  function compact(id, from, { text, title, next } = {}) {
+    const c = getOpen(id);
+    if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} can be compacted.`);
+    if (from === owner || from !== c.sender) throw new MemoError(403, `Only ${c.sender} can compact memo ${c.id}.`);
+    const { memo } = send({
+      from, to: owner, text, impact: c.impact, effort: c.effort, due: c.due, tags: c.tags,
+      title: title === undefined ? c.title : title, next: next === undefined ? c.next : next,
+    });
+    db.prepare(`UPDATE memos SET reply = ?, state = 'closed', closed = ?, acked = 1 WHERE id = ?`).run(`Compacted into memo #${memo.id}.`, ts(), c.id);
+    db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ?').run(c.id, owner);
+    return { memo, old: get(c.id) };
+  }
   const unreadFromOwner = (id) => db.prepare('SELECT COUNT(*) AS n FROM notes WHERE memo_id = ? AND author = ? AND read = 0').get(id, owner).n;
 
   // The owner changes one check box of a memo ("- [ ] text"). The text changes only in that box, and the memo stays seen.
@@ -332,5 +347,5 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     };
   }
 
-  return { get, send, reply, close, edit, brief, note, seen, check, adjust, ack, forward, tag, postpone, postponed, list, news, corrections, counts, timeZone };
+  return { get, send, reply, close, edit, brief, note, compact, seen, check, adjust, ack, forward, tag, postpone, postponed, list, news, corrections, counts, timeZone };
 }

@@ -212,3 +212,19 @@ test('the brief route sets the brief, and the liaison token cannot use it', asyn
   assert.equal(queue.data.memos[0].next, 'Reply deploy');
   assert.equal((await call(app, '/api/brief', { id: 1, title: 'X' }, LIAISON_TOKEN)).status, 403);
 });
+
+test('the compact route closes the memo and sends the new one, and the liaison token cannot use it', async () => {
+  const { app } = makeApp();
+  await call(app, '/api/send', { ...toCam, tags: ['work'], title: 'Deploy' });
+  assert.equal((await call(app, '/api/compact', { id: 1, from: 'main', text: 'Short.' }, LIAISON_TOKEN)).status, 403);
+  assert.equal((await call(app, '/api/compact', { id: 1, from: 'liaison', text: 'Short.' })).status, 403);
+  const r = await call(app, '/api/compact', { id: 1, from: 'main', text: 'Short.', next: 'Reply yes' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.memo.id, 2);
+  assert.equal(r.data.memo.title, 'Deploy');
+  assert.equal(r.data.memo.next, 'Reply yes');
+  assert.deepEqual(r.data.memo.tags, ['work']);
+  assert.equal(r.data.old.reply, 'Compacted into memo #2.');
+  assert.deepEqual((await call(app, '/api/queue')).data.memos.map((m) => m.id), [2]);
+  assert.equal((await call(app, '/api/compact', { id: 1, from: 'main', text: 'Again.' })).status, 409);
+});
