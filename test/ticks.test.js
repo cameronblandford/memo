@@ -108,7 +108,7 @@ test('the time zone gives the day of the owner, not the day of the server', () =
   assert.deepEqual(ticks.today(), { day: '2026-10-12', weekday: 'mon', minutes: 20 * 60 + 30 });
 });
 
-test('the limit is 5 active ticks, and a removed tick makes room', () => {
+test('the limit is 10 active ticks, and a removed tick makes room', () => {
   const { ticks } = make();
   const made = Array.from({ length: MAX_ACTIVE }, (_, i) => ticks.add({ ...SHOWER, text: `Tick ${i}` }));
   refuses(() => ticks.add(SHOWER), 409, 'limit');

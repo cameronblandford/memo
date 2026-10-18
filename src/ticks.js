@@ -4,7 +4,7 @@ import { EFFORTS, WEIGHTS } from './rank.js';
 // A tick is a small action of the owner that comes back: each day, on some days of the week, or some days after
 // the owner did it last. A tick is not a memo. It has no reply, no due date, and no backlog: a tick that the owner
 // did not do goes away at the end of the day.
-export const MAX_ACTIVE = 5;
+export const MAX_ACTIVE = 10;
 const MAX_TEXT = 80;
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const pad = (n) => String(n).padStart(2, '0');
