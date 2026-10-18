@@ -220,6 +220,13 @@ test('the Inbox has a compact view with the name and the next step, and keeps th
   assert.match(page, /clearTimeout\(waiting\.get\(id\)\);\n  waiting\.delete\(id\);\n  old\.replaceWith/);
 });
 
+test('the header button says Collapse and always collapses all memos; when all are collapsed, it shows them in full', async () => {
+  const page = (await get('/inbox')).text;
+  assert.match(page, /<button id="compact"[^>]*>Collapse<\/button>/);
+  assert.match(page, /function collapseAll\(\) \{\n  if \(compact && !queue\.querySelector\('\.memo:not\(\.brief\)'\)\) return setCompact\(false\);\n  opened\.clear\(\);\n  setCompact\(true\);/);
+  assert.match(page, /compactButton\.addEventListener\('click', \(\) => \{ collapseAll\(\);/);
+});
+
 test('the Inbox has a Shorten button on memos from an agent, which adds the fixed note and then shows Asked', async () => {
   const { COMPACT_NOTE, compactAsked } = await import('../ui/filter.js');
   const page = (await get('/inbox')).text;
