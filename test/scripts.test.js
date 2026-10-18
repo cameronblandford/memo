@@ -52,7 +52,7 @@ test('run-agent.sh gives the liaison only its two commands and the restricted to
 test('the example main charter has the commands and the rules that the system depends on', () => {
   const text = read('charters', 'main.md');
   for (const part of ['# Charter: main', 'memo list --to main', 'memo status --as main', 'memo wait --as main', '--hold',
-    'memo recap --as main', 'memo ack', 'impact.md', '2,000 characters', 'Owner stops this session', 'local/charters/main.md']) {
+    'memo recap --as main', 'memo ack', 'impact.md', '2,000 characters', 'Owner stops this session', 'local/charters/main.md', 'memo compact <id> --from main']) {
     assert.ok(text.includes(part), `charters/main.md must contain: ${part}`);
   }
 });

@@ -85,6 +85,8 @@ A list item that starts with `[ ]` or `[x]` (for example `- [ ] Rain jacket`) sh
 
 The button "Note" sends the text of the reply field to the sender of the memo, and the memo stays open in the Inbox with its place in the queue. Use it to ask for a change or for more data. The notes show below the memo text, with the answers of the agent. `memo wait` gives the agent each memo with a note that it did not read. The agent answers with `memo note <id> --from <name> "<text>"`, changes the memo with `memo edit`, or runs `memo ack <id>` when no answer is necessary. "Reply" and "Close" end the memo as before.
 
+The button "Shorten" is on each memo from an agent. It adds a fixed note that asks the agent to make the memo short. The Inbox does not show this note; the button shows "Asked" instead. The agent runs `memo compact <id> --from <name> -- "<new text>"`: the server closes the memo ("Compacted into memo #<new id>.") and sends a new memo with the new text and the impact, effort, due date, tags, and brief of the old memo. The new text has a short summary, the open items as check boxes, and the next step. The button shows "Asked" until the agent reads the note.
+
 The buttons "More" and "Less" change the impact of a memo by 1. The server records each change. When an agent sends its next memo, `memo` shows the agent the last 5 changes.
 
 The field at the top sends a memo from the owner to the agent.
@@ -118,7 +120,7 @@ A tick is a small action of the owner that comes back: each day, on some days of
 - A tick that the owner did not do goes away at the end of the day. There is no backlog.
 - "skip today" removes the row for today. "less" and "more" change the impact by 1, and the change stays for the next days.
 - A tick gets no tag and no toast, and it is not in the count of memos.
-- The limit is 5 active ticks (`MAX_ACTIVE` in `src/ticks.js`).
+- The limit is 10 active ticks (`MAX_ACTIVE` in `src/ticks.js`).
 
 ```sh
 scripts/memo tick add --impact 3 --effort short Shower
@@ -192,6 +194,7 @@ scripts/memo reply 12 "Yes."
 scripts/memo close 12 "Done."
 scripts/memo edit 12 "A new text for an open memo."
 scripts/memo note 12 --from main "The price is $14 each month."
+scripts/memo compact 12 --from main -- "- [ ] Pay the invoice. Next: approve the quote."
 scripts/memo ack 12
 scripts/memo status --as main "I update the README of the website."
 scripts/memo recap --as main "The README is complete. Next: the tests."

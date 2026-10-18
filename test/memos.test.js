@@ -351,3 +351,55 @@ test('memo brief changes one part, keeps the other, and does not mark the memo u
   s.close(memo.id);
   refuses(() => s.brief(memo.id, { title: 'Late' }), 409, 'closed');
 });
+
+test('compact closes an open memo to cam and sends a short new memo with the same impact, effort, due date, tags, and brief', () => {
+  const s = makeStore();
+  const { memo: old } = s.send({ ...toCam, impact: 3, effort: 'hour', due: '2026-11-01', tags: ['work', 'money'], title: 'Deploy', next: 'Reply yes' });
+  s.seen([old.id]);
+  s.note(old.id, 'cam', 'Compact this memo, please.');
+  const { memo, old: closed } = s.compact(old.id, 'main', { text: '- [x] Tests\n- [ ] Approve the deploy' });
+  assert.equal(memo.id, 2);
+  assert.equal(memo.sender, 'main');
+  assert.equal(memo.recipient, 'cam');
+  assert.equal(memo.state, 'open');
+  assert.equal(memo.text, '- [x] Tests\n- [ ] Approve the deploy');
+  assert.equal(memo.impact, 3);
+  assert.equal(memo.effort, 'hour');
+  assert.equal(memo.due, '2026-11-01');
+  assert.deepEqual(memo.tags, ['money', 'work']);
+  assert.equal(memo.title, 'Deploy');
+  assert.equal(memo.next, 'Reply yes');
+  assert.equal(memo.seen, 0, 'the new memo shows as new');
+  assert.equal(closed.state, 'closed');
+  assert.equal(closed.reply, 'Compacted into memo #2.');
+  assert.equal(closed.acked, 1);
+  assert.equal(closed.notes[0].read, 1);
+  // The sender gets no result and no note for the old memo, and the Inbox has only the new memo.
+  const news = s.news('main');
+  assert.deepEqual(news.results, []);
+  assert.deepEqual(news.noted, []);
+  assert.deepEqual(s.list('cam').map((c) => c.id), [2]);
+});
+
+test('compact takes a new title and next step, and an empty part removes it', () => {
+  const s = makeStore();
+  s.send({ ...toCam, title: 'Deploy', next: 'Reply yes' });
+  const { memo } = s.compact(1, 'main', { text: 'Short.', title: 'Deploy v2', next: '' });
+  assert.equal(memo.title, 'Deploy v2');
+  assert.equal(memo.next, null);
+});
+
+test('compact refuses a closed memo, a memo not to cam, a wrong sender, and no text', () => {
+  const s = makeStore();
+  s.send(toCam);
+  refuses(() => s.compact(1, 'liaison', { text: 'x' }), 403, 'main');
+  refuses(() => s.compact(1, 'cam', { text: 'x' }), 403, 'main');
+  refuses(() => s.compact(1, 'main', {}), 400, 'text');
+  refuses(() => s.compact(99, 'main', { text: 'x' }), 404, '99');
+  s.close(1);
+  refuses(() => s.compact(1, 'main', { text: 'x' }), 409, 'closed');
+  s.send({ from: 'cam', to: 'main', text: 'Update the README.' });
+  refuses(() => s.compact(2, 'cam', { text: 'x' }), 400, 'Only a memo to cam');
+  // A refused compact sends nothing.
+  assert.deepEqual(s.list('cam'), []);
+});

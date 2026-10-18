@@ -15,6 +15,7 @@ const USAGE = `Usage:
   memo edit <id> [--] <new text>
   memo brief <id> [--title <name>] [--next <step>]
   memo note <id> --from <name> [--] <text>
+  memo compact <id> --from <name> [--title <name>] [--next <step>] [--] <new text>
   memo ack <id> [<id> ...]
   memo forward <id> [--to <agent>]
   memo status --as <agent> <text>
@@ -196,6 +197,12 @@ const commands = {
     const id = memoId(rest[0]);
     await call('/api/note', { id, from: need('from'), text: rest.slice(1).join(' ') });
     console.log(`Memo ${id} has the note. It stays open.`);
+  },
+  // The owner asked for a short memo: the old memo closes, and a new memo with the new text takes its place.
+  async compact() {
+    const id = memoId(rest[0]);
+    const r = await call('/api/compact', { id, from: need('from'), text: rest.slice(1).join(' '), title: flags.title, next: flags.next });
+    console.log(`Memo ${id} is compacted into memo ${r.memo.id}.`);
   },
   async close() {
     const id = memoId(rest[0]);
