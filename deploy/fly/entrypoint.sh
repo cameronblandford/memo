@@ -15,6 +15,10 @@ tailscaled --state="$data/tailscale/tailscaled.state" --socket=/var/run/tailscal
   --tun=userspace-networking >/var/log/tailscaled.log 2>&1 &
 n=0; until tailscale version --daemon >/dev/null 2>&1 || [ "$n" -ge 20 ]; do n=$((n + 1)); sleep 0.5; done
 if [ -n "${TS_AUTHKEY:-}" ]; then tailscale up --hostname="${TS_HOSTNAME:-memo}" --authkey="$TS_AUTHKEY" || true; fi
+# The daemon answers before it is connected, and "tailscale status" exits 0 already in the state "Starting", before
+# Serve can work. Wait up to 15 seconds for the state "Running", so that the Serve lines below run at each boot.
+# A device that is not signed in waits the full time, then gets the hint.
+n=0; until tailscale status --json 2>/dev/null | grep -q '"BackendState": *"Running"' || [ "$n" -ge 30 ]; do n=$((n + 1)); sleep 0.5; done
 if tailscale status >/dev/null 2>&1; then
   tailscale serve --bg --https=443 http://127.0.0.1:3280 || echo "Tailscale Serve did not start."
   # Plain HTTP inside the tailnet only, for the short name (http://memo/inbox). The server sends it on to the HTTPS name.
