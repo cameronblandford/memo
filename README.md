@@ -59,6 +59,8 @@ A browser keeps the token for one address only. With [Tailscale Serve](https://t
 3. In `.env`, set `MEMO_TAILSCALE_HOST` to the host name and port from step 1, for example `your-mac.your-tailnet.ts.net:8443`.
 4. Start the server again.
 
+Optional, a short address such as `http://your-mac/inbox`: also run `tailscale serve --bg --http=80 http://127.0.0.1:3280`. With MagicDNS, the first part of the host name works alone in the tailnet. The server sends each request to the short name on to the full HTTPS name (`MEMO_TAILSCALE_HOST`), so the browser keeps one token and the Tailscale check applies. Some browsers search for `your-mac/inbox`; type `http://` before it one time, and the browser remembers the address.
+
 Tailscale Serve tells the server which tailnet user sent a request. The server gives full access with no token only when that user is `MEMO_TAILSCALE_LOGIN`, the request came to `MEMO_TAILSCALE_HOST`, and the request is not from a page of a different site. `HOST` must stay `127.0.0.1`. A program that runs on the computer of the server can make such a request without Tailscale, so this setting gives no protection against a local program (a local program with your user account can read `.env` also).
 
 The Inbox shows the open memos to the owner. The order is:

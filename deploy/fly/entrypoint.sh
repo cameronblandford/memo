@@ -17,6 +17,8 @@ n=0; until tailscale version --daemon >/dev/null 2>&1 || [ "$n" -ge 20 ]; do n=$
 if [ -n "${TS_AUTHKEY:-}" ]; then tailscale up --hostname="${TS_HOSTNAME:-memo}" --authkey="$TS_AUTHKEY" || true; fi
 if tailscale status >/dev/null 2>&1; then
   tailscale serve --bg --https=443 http://127.0.0.1:3280 || echo "Tailscale Serve did not start."
+  # Plain HTTP inside the tailnet only, for the short name (http://memo/inbox). The server sends it on to the HTTPS name.
+  tailscale serve --bg --http=80 http://127.0.0.1:3280 || echo "Tailscale Serve on port 80 did not start."
 else
   echo "Tailscale is not signed in. Run in fly ssh console: tailscale up --hostname=${TS_HOSTNAME:-memo}"
 fi

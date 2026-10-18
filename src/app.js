@@ -31,6 +31,18 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     return c.json({ error: 'The server has an error. See data/server.log.' }, 500);
   });
 
+  // The short tailnet name (for example http://memo/inbox, through Tailscale Serve on port 80) goes to the full
+  // HTTPS name. There the browser keeps the token and the Tailscale check applies. A redirect gives no data.
+  if (tailscale) {
+    const short = tailscale.host.split('.')[0];
+    app.use('*', async (c, next) => {
+      const host = c.req.header('Host') || '';
+      if (host !== short && host !== `${short}:80`) return next();
+      const url = new URL(c.req.url);
+      return c.redirect(`https://${tailscale.host}${url.pathname}${url.search}`, 308);
+    });
+  }
+
   app.get('/health', (c) => c.json({ ok: true }));
   app.get('/', (c) => c.redirect('/inbox'));
   // The pages talk only to this server. frame-src 'none': a frame of a memo cannot go to an address.
