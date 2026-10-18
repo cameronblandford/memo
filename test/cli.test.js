@@ -167,3 +167,16 @@ test('send and brief set the title and the next step of a memo', () => withServe
   assert.match((await memo(['brief', '1'])).stderr, /title, next/);
   assert.match((await memo(['brief', '1', 'loose text'])).stderr, /--title and --next/);
 }));
+
+test('compact closes the memo and prints the new id', () => withServer(async ({ memo, store }) => {
+  await memo(['send', '--from', 'main', '--to', 'cam', '--impact', '4', '--effort', 'micro', '--tag', 'work', 'A', 'long', 'memo.']);
+  const r = await memo(['compact', '1', '--from', 'main', '--title', 'Short', '--', '- [ ] Approve', 'the deploy']);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /Memo 1 is compacted into memo 2\./);
+  assert.equal(store.get(2).text, '- [ ] Approve the deploy');
+  assert.equal(store.get(2).title, 'Short');
+  assert.deepEqual(store.get(2).tags, ['work']);
+  assert.equal(store.get(1).state, 'closed');
+  assert.match((await memo(['compact', '2', 'x'])).stderr, /--from is necessary/);
+  assert.match((await memo([])).stderr, /memo compact <id> --from <name>/);
+}));

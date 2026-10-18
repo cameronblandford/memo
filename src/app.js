@@ -108,6 +108,12 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     only(c, false);
     return c.json(store.note(b.id, b.from, b.text));
   });
+  // The sender (from) closes an open memo to the owner and sends a short new memo in its place.
+  app.post('/api/compact', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(store.compact(b.id, b.from, { text: b.text, title: b.title, next: b.next }));
+  });
   app.post('/api/seen', async (c) => {
     const b = await body(c);
     only(c, false);

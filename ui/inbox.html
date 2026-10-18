@@ -32,7 +32,7 @@ import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } 
 import { render as markdown, summary } from '/ui/markdown.js';
 import { enterSends, fieldHeight } from '/ui/keys.js';
 import { withFeedback } from '/ui/feedback.js';
-import { shownMemos, step, countText, filterChoices, tagSuggestions, todayIn, addDays, nextMonday, dueWarning } from '/ui/filter.js';
+import { shownMemos, step, countText, filterChoices, tagSuggestions, todayIn, addDays, nextMonday, dueWarning, COMPACT_NOTE, compactAsked } from '/ui/filter.js';
 
 const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
@@ -129,6 +129,7 @@ function view(memo) {
       }),
       button('+ tag', () => toggle(tagPanel, laterPanel), 'Add a tag to this memo'),
       button('Postpone', () => toggle(laterPanel, tagPanel), 'Take this memo out of the Inbox until a date'),
+      ...(canCompact(memo) ? [compactButtonOf(memo)] : []),
       ...(compact ? [button('Collapse', () => toggleOpen(memo.id), 'Show only the name and the next step of this memo')] : [])),
     tagPanel,
     laterPanel,
@@ -150,6 +151,19 @@ function view(memo) {
   node.addEventListener('click', () => select(memo.id));
   if (tag) watch.observe(node);
   return node;
+}
+
+// The Compact button asks the sender, with a fixed note, to close the memo and send a short new memo:
+// a summary, the open items, and the next step. Only for a memo from an agent that reads notes.
+const canCompact = (memo) => !['__OWNER__', 'liaison', 'discord'].includes(memo.sender);
+function compactButtonOf(memo) {
+  if (compactAsked(memo)) {
+    const asked = button('Asked', () => {}, 'The agent has the request to compact this memo');
+    asked.disabled = true;
+    return asked;
+  }
+  return button('Compact', (b) => send(b, () => api('/api/note', { id: memo.id, from: '__OWNER__', text: COMPACT_NOTE })),
+    'Ask the agent to close this memo and send a short new memo: a summary, the open items, and the next step');
 }
 
 // The field to add a tag, with the starter tags and the tags in use as suggestions. Return adds, Escape closes.
