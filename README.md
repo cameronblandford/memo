@@ -118,7 +118,7 @@ A tick is a small action of the owner that comes back: each day, on some days of
 - A tick that the owner did not do goes away at the end of the day. There is no backlog.
 - "skip today" removes the row for today. "less" and "more" change the impact by 1, and the change stays for the next days.
 - A tick gets no tag and no toast, and it is not in the count of memos.
-- The limit is 5 active ticks (`MAX_ACTIVE` in `src/ticks.js`).
+- The limit is 10 active ticks (`MAX_ACTIVE` in `src/ticks.js`).
 
 ```sh
 scripts/memo tick add --impact 3 --effort short Shower
