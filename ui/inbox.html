@@ -62,10 +62,11 @@ function setCompact(on) {
   render();
   nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
 }
-// The button always collapses all memos, also the memos that the owner opened. When all memos are already
-// collapsed, it shows all memos in full, so that the full view stays one click away on a phone.
+// The button always collapses all memos, also the memos that the owner opened. When all memos on the screen are
+// already collapsed, it shows all memos in full, so that the full view stays one click away on a phone.
+// The test reads the screen, not the opened ids: an opened memo that left the list (reply, close, filter) keeps its id.
 function collapseAll() {
-  if (compact && !opened.size) return setCompact(false);
+  if (compact && !queue.querySelector('.memo:not(.brief)')) return setCompact(false);
   opened.clear();
   setCompact(true);
 }
