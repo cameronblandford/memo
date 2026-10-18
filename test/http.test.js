@@ -137,6 +137,27 @@ const viaTailscale = (app, path, headers = {}, body) => app.request(path, {
   body: body ? JSON.stringify(body) : undefined,
 });
 
+test('the short tailnet name goes to the full HTTPS name, with the path and the query', async () => {
+  const { app } = makeApp({ tailscale: TAILNET });
+  for (const host of ['mac', 'mac:80']) {
+    const r = await app.request('/inbox?x=1', { headers: { Host: host } });
+    assert.equal(r.status, 308);
+    assert.equal(r.headers.get('Location'), `https://${TAILNET.host}/inbox?x=1`);
+  }
+  const api = await app.request('/api/list?to=cam', { headers: { Host: 'mac' } });
+  assert.equal(api.status, 308);
+  assert.equal(await api.text(), '');
+});
+
+test('the full name and other names get no redirect', async () => {
+  const { app } = makeApp({ tailscale: TAILNET });
+  assert.equal((await app.request('/health', { headers: { Host: TAILNET.host } })).status, 200);
+  assert.equal((await app.request('/health', { headers: { Host: '127.0.0.1:3280' } })).status, 200);
+  assert.equal((await app.request('/health', { headers: { Host: 'mac.evil.example' } })).status, 200);
+  const plain = makeApp();
+  assert.equal((await plain.app.request('/health', { headers: { Host: 'mac' } })).status, 200);
+});
+
 test('a request of the owner through Tailscale needs no token', async () => {
   const { app } = makeApp({ tailscale: TAILNET });
   assert.equal((await viaTailscale(app, '/api/list?to=cam')).status, 200);
