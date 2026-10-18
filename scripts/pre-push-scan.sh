@@ -67,7 +67,10 @@ lines() {
 if [ "${1:-}" = --range ]; then
   lines "${2:?Usage: scripts/pre-push-scan.sh --range <range>}" >> "$tmp/lines"
 else
-  remote="${1:-origin}"
+  # Git gives a hook two arguments (the remote and its address) and the refs on stdin. Without arguments, a run by
+  # hand would wait on stdin with no end, so it stops.
+  [ "$#" -ge 1 ] || { echo "Usage: scripts/pre-push-scan.sh --range <range> (git gives the hook its arguments)." >&2; exit 2; }
+  remote="$1"
   while read -r _ sha _ remote_sha; do
     [ "$sha" != "$zero" ] || continue   # a deleted branch has no commits
     if [ "$remote_sha" = "$zero" ]; then lines "$sha --not --remotes=$remote" >> "$tmp/lines"
