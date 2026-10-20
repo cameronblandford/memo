@@ -85,16 +85,32 @@ button:hover { border-color: var(--accent); }
 .tick.done .late { display: none; }
 .tick.done label { color: var(--dim); text-decoration: line-through; }
 .tick.done button { visibility: hidden; }
-#toasts { position: fixed; right: 1rem; bottom: 1rem; z-index: 10; display: flex; flex-direction: column; gap: .5rem; width: min(22rem, calc(100vw - 2rem)); }
+/* The corner of the Inbox: the toasts of new memos, the toast after a send, and the work sign of the agents. */
+#corner { position: fixed; right: 1rem; bottom: 1rem; z-index: 10; display: flex; flex-direction: column; gap: .5rem; width: min(22rem, calc(100vw - 2rem)); pointer-events: none; }
+#corner > * { display: flex; flex-direction: column; gap: .5rem; pointer-events: auto; }
+#corner > :empty { display: none; }
+/* Room under the last text, so the work sign does not cover it. */
+#corner ~ footer { margin-bottom: 3rem; }
 .toast { display: flex; align-items: flex-start; gap: .5rem; padding: .55rem .5rem .55rem .75rem; background: var(--panel); border: 1px solid var(--accent); border-radius: .75rem; box-shadow: 0 .25rem 1rem rgb(0 0 0 / .18); cursor: pointer; font-size: .9rem; animation: toast-in .2s ease-out; }
 .toast .body { flex: 1; min-width: 0; }
 .toast .line { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .toast .tag { float: none; margin: 0 .4rem 0 0; }
 .toast button { padding: 0 .4rem; border: 0; background: none; color: var(--dim); font-size: 1.1rem; line-height: 1.2; }
 .toast.more { cursor: default; border-color: var(--line); color: var(--dim); padding: .35rem .75rem; }
-@media (max-width: 40rem) { #toasts { gap: .35rem; } .toast { padding: .35rem .4rem .35rem .65rem; } .toast .line { -webkit-line-clamp: 1; } }
+@media (max-width: 40rem) { #corner, #corner > * { gap: .35rem; } .toast { padding: .35rem .4rem .35rem .65rem; } .toast .line { -webkit-line-clamp: 1; } }
 @keyframes toast-in { from { opacity: 0; transform: translateY(.5rem); } }
-@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+/* The toast after a send: a check mark and "Sent to main". */
+.toast.sent { align-items: center; padding: .45rem .75rem; }
+.toast.sent .check { flex: none; width: .4rem; height: .75rem; margin: 0 .3rem 0 .15rem; border: solid var(--accent); border-width: 0 2.5px 2.5px 0; transform: translateY(-.1rem) rotate(45deg); }
+/* The work sign: a small pill for each agent with work from the owner. "working" has a spinner, "queued" a hollow dot. */
+.pill { align-self: flex-end; display: flex; align-items: center; gap: .45rem; max-width: 100%; padding: .3rem .75rem .3rem .55rem; background: var(--panel); border: 1px solid var(--line); border-radius: 1rem;
+  box-shadow: 0 .15rem .6rem rgb(0 0 0 / .14); color: var(--dim); font-size: .85rem; text-decoration: none; animation: toast-in .2s ease-out; }
+.pill:hover { border-color: var(--accent); }
+.pill.working { border-color: var(--accent); color: var(--ink); }
+.pill .line { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pill .spin { flex: none; width: .85rem; height: .85rem; box-sizing: border-box; border: 2px solid var(--line); border-radius: 50%; }
+.pill.working .spin { border-top-color: var(--accent); animation: spin .9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .toast, .pill { animation: none; } .pill.working .spin { animation: none; border-style: dotted; border-color: var(--accent); } }
 .md ul.tasks { padding-left: .25rem; }
 .md li.task { list-style: none; }
 .md li.task label { display: block; padding: .2rem 0; cursor: pointer; }

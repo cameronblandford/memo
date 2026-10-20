@@ -25,13 +25,18 @@
   <button id="later-toggle" type="button" aria-expanded="false">Postponed</button>
   <div id="later-list" hidden></div>
 </section>
-<div id="toasts" role="status" aria-live="polite"></div>
+<div id="corner">
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <div id="sent" role="status" aria-live="polite"></div>
+  <div id="work"></div>
+</div>
 <footer>Keys: j and k select a memo. c collapses all memos (or shows them in full), and o opens or closes the selected memo in it. + and - change the impact. w shows the work memos or all memos. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
 import { enterSends, fieldHeight } from '/ui/keys.js';
 import { withFeedback } from '/ui/feedback.js';
+import { workSigns, signText } from '/ui/working.js';
 import { shownMemos, step, countText, filterChoices, tagSuggestions, todayIn, addDays, nextMonday, dueWarning, COMPACT_NOTE, compactAsked, shownNotes } from '/ui/filter.js';
 
 const queue = document.getElementById('queue');
@@ -397,10 +402,46 @@ function render() {
   laterToggle.textContent = `Postponed (${postponedCount})`;
 }
 
-async function load() {
+// The sign in the corner after a send: the server has the text. It goes away after a short time or at a click.
+const SENT_TOAST_MS = 4000;
+const sentBox = document.getElementById('sent');
+function sentToast(text) {
+  const node = el('div', { className: 'toast sent', title: 'Close' }, el('span', { className: 'check' }), el('span', { className: 'line' }, text));
+  node.addEventListener('click', () => node.remove());
+  sentBox.append(node);
+  setTimeout(() => node.remove(), SENT_TOAST_MS);
+}
+
+// The work sign in the corner: one pill for each agent with work from the owner. "working" has a spinner,
+// "queued" has none (see ui/working.js). A pill stays as the same node, so its spinner does not start again.
+// A click goes to the Agents page.
+const workBox = document.getElementById('work');
+const pills = new Map(); // agent name -> node
+function showWork(agents) {
+  const signs = workSigns(agents);
+  for (const [name, node] of pills) if (!signs.some((s) => s.name === name)) { node.remove(); pills.delete(name); }
+  for (const sign of signs) {
+    let node = pills.get(sign.name);
+    if (!node) {
+      node = el('a', { href: '/agents' }, el('span', { className: 'spin' }), el('span', { className: 'line' }));
+      pills.set(sign.name, node);
+      workBox.append(node);
+    }
+    node.className = `pill ${sign.state}`;
+    node.lastChild.textContent = signText(sign);
+    node.title = sign.state === 'working'
+      ? `${sign.name} works on your memos. Open the Agents page`
+      : `${sign.name} did not start your memo yet. Open the Agents page`;
+  }
+}
+
+// list false: only the work sign changes. The refresh uses it while the owner types, because a new list replaces the reply fields.
+async function load({ list = true } = {}) {
   try {
     const data = await api('/api/queue');
     note('');
+    showWork(data.agents);
+    if (!list) return;
     const next = data.memos;
     // A done row stays at its place while the server does not give the tick again.
     for (const t of data.ticks) doneTicks.delete(t.id);
@@ -421,12 +462,13 @@ async function run(action) {
 }
 // Sends with a sign on the button: a spinner while the request is out, then a check mark, then the new list.
 // A failure shows the error and keeps the text and the images in the field.
-async function send(buttonNode, action) {
+// sentText: the text of the toast after the server stored the memo, for example "Sent to main".
+async function send(buttonNode, action, sentText) {
   // The other buttons of the same memo are off for that time: a Close during a Reply must not send a second request.
   const others = [...(buttonNode?.parentNode?.querySelectorAll('button') || [])].filter((b) => b !== buttonNode && !b.disabled);
   for (const b of others) b.disabled = true;
   try {
-    if (await withFeedback(buttonNode, async () => { await action(); note(''); })) await load();
+    if (await withFeedback(buttonNode, async () => { await action(); note(''); if (sentText) sentToast(sentText); })) await load();
   } catch (error) {
     // The browser gives a TypeError when the request did not get to the server.
     note(error instanceof TypeError ? 'Not sent: the server did not answer. Your text is still in the field. Try again.' : error.message);
@@ -434,11 +476,11 @@ async function send(buttonNode, action) {
 }
 const reply = (memo, text, buttonNode) => {
   if (!text.trim()) return note('Write a reply first.');
-  return send(buttonNode, async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); });
+  return send(buttonNode, async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); }, `Reply sent to ${memo.sender}`);
 };
 const addNote = (memo, text, buttonNode) => {
   if (!text.trim()) return note('Write a note first.');
-  return send(buttonNode, async () => { await api('/api/note', { id: memo.id, from: '__OWNER__', text }); drafts.delete(memo.id); });
+  return send(buttonNode, async () => { await api('/api/note', { id: memo.id, from: '__OWNER__', text }); drafts.delete(memo.id); }, `Note sent to ${memo.sender}`);
 };
 const close = (memo, buttonNode) => send(buttonNode, async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); });
 const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta }));
@@ -461,7 +503,7 @@ capture.addEventListener('submit', (event) => {
     // The server has the memo: the field is empty at the moment that the check mark shows.
     capture.elements.text.value = '';
     capture.elements.text.dispatchEvent(new Event('input'));
-  });
+  }, `Sent to ${to}`);
 });
 // The capture field grows with its text, to 40% of the window height.
 function grow() {
@@ -500,8 +542,8 @@ document.addEventListener('keydown', (event) => {
 tokenForm(() => { load(); loadAgents(); });
 load();
 loadAgents();
-// A new list replaces the reply fields, so the page does not load while the owner types.
-setInterval(() => { if (!typing()) load(); }, 15000);
+// A new list replaces the reply fields, so while the owner types, only the work sign changes.
+setInterval(() => load({ list: !typing() }), 15000);
 </script>
 </body>
 </html>

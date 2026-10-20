@@ -339,11 +339,22 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return { to_you, results, noted };
   }
 
+  // owner_open: the work of the owner that waits for this agent. That is each open memo from the owner to the agent,
+  // and each open memo from the agent with a note of the owner that the agent did not read.
+  // owner_since: the time of the oldest of these memos or notes, or null. The Inbox compares it with the status time.
   function counts(name) {
     const n = (sql) => db.prepare(sql).get(name).n;
+    const sent = db.prepare(`SELECT COUNT(*) AS n, MIN(created) AS since FROM memos WHERE sender = ? AND recipient = ? AND state = 'open'`).get(owner, name);
+    const noted = db.prepare(
+      `SELECT COUNT(DISTINCT m.id) AS n, MIN(t.created) AS since FROM notes t JOIN memos m ON m.id = t.memo_id
+       WHERE m.sender = ? AND m.state = 'open' AND t.author = ? AND t.read = 0`,
+    ).get(name, owner);
+    const since = [sent.since, noted.since].filter(Boolean).sort()[0] ?? null;
     return {
       open_to: n(`SELECT COUNT(*) AS n FROM memos WHERE recipient = ? AND state = 'open'`),
       open_from: n(`SELECT COUNT(*) AS n FROM memos WHERE sender = ? AND state = 'open'`),
+      owner_open: sent.n + noted.n,
+      owner_since: since,
     };
   }
 

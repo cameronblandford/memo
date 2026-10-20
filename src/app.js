@@ -14,6 +14,7 @@ const UI = {
   'keys.js': 'text/javascript; charset=utf-8',
   'attach.js': 'text/javascript; charset=utf-8',
   'feedback.js': 'text/javascript; charset=utf-8',
+  'working.js': 'text/javascript; charset=utf-8',
   'lightbox.js': 'text/javascript; charset=utf-8',
   'common.css': 'text/css; charset=utf-8',
 };
@@ -211,6 +212,8 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
       // For the "Postponed (n)" button, and for the dates of the postpone picker.
       postponed: store.postponed().length,
       timeZone: store.timeZone,
+      // For the work sign in the corner: the status of each agent and the work of the owner that waits for it.
+      agents: agents.work(),
     });
   });
   const needTicks = () => {

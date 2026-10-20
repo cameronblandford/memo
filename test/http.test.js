@@ -65,6 +65,25 @@ test('status, recap, and the agent list', async () => {
   assert.equal(main.running, false);
 });
 
+test('the queue gives the work sign data of each agent with a session', async () => {
+  const { app, store } = makeApp();
+  const work = async () => (await call(app, '/api/queue')).data.agents;
+  // The short agent liaison has no session, so it gets no sign.
+  assert.deepEqual(await work(), [{ name: 'main', status: '', updated: '', open_to: 0, open_from: 0, owner_open: 0, owner_since: null }]);
+  await call(app, '/api/send', { from: 'cam', to: 'main', text: 'Work.' });
+  const [queued] = await work();
+  assert.equal(queued.owner_open, 1);
+  assert.equal(queued.owner_since, store.get(1).created);
+  await call(app, '/api/status', { agent: 'main', text: 'I do memo 1.' });
+  const [working] = await work();
+  assert.equal(working.status, 'I do memo 1.');
+  assert.ok(working.updated >= working.owner_since);
+  // The Agents page gets the same counts.
+  assert.equal((await call(app, '/api/agents')).data[0].owner_open, 1);
+  await call(app, '/api/reply', { id: 1, text: 'Done.' });
+  assert.equal((await work())[0].owner_open, 0);
+});
+
 test('start and stop of an agent', async () => {
   const { app, sessions } = makeApp();
   assert.deepEqual((await call(app, '/api/agent/start', { name: 'main' })).data, { name: 'main', running: true });

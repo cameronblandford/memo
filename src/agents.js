@@ -104,6 +104,15 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     });
   }
 
+  // For the work sign of the Inbox: each agent with a session, its status line, and its counts. This does not ask
+  // tmux, so the Inbox can get it on each refresh at a low cost.
+  function work() {
+    return config.filter((a) => a.kind !== 'short').map((a) => {
+      const r = row(a.name);
+      return { name: a.name, status: r.text, updated: r.updated, ...counts(a.name) };
+    });
+  }
+
   function start(name) {
     known(name, 'long');
     const wasStopping = !!row(name).stopping_since;
@@ -176,5 +185,5 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     }
   }
 
-  return { list, start, stop, recap, setStatus, prompt, defaultAgent, resume, contact };
+  return { list, work, start, stop, recap, setStatus, prompt, defaultAgent, resume, contact };
 }
