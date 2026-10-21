@@ -25,6 +25,17 @@ export function matches(memo, filter) {
 // The memos that the list shows.
 export const shownMemos = (memos, filter = 'all') => (filter === 'all' ? memos : memos.filter((m) => matches(m, filter)));
 
+// The orders of the Inbox: 'rank' (the order of the server: returned, due soon, impact / effort) or 'updated' (the
+// memo with the newest change first; the server gives `updated`, see updatedTime in src/rank.js). Equal times keep
+// the rank order. A saved value that is not a choice gives 'rank'.
+export const SORTS = [['rank', 'Rank'], ['updated', 'Recently updated']];
+export const sortChoice = (value) => (SORTS.some(([v]) => v === value) ? value : 'rank');
+export function sortedMemos(memos, sort = 'rank') {
+  if (sort !== 'updated') return memos;
+  const at = (m) => m.updated || m.created || '';
+  return [...memos].sort((a, b) => (at(a) === at(b) ? 0 : at(a) < at(b) ? 1 : -1));
+}
+
 // The choices of the filter: All, Work, Personal, and each tag in use (not work, which has its own choice).
 // A filter that is saved on the device and has no memo now stays in the list, so the choice does not jump.
 export function filterChoices(memos, current = 'all') {

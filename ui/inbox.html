@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/ui/common.css">
 </head>
 <body>
-<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><button id="compact" type="button" aria-pressed="false" title="Collapse all memos to their name and next step. A click on a memo opens it. A click here when all are collapsed shows all memos in full. Key: c">Collapse</button><a href="/agents">Agents</a><a href="/log">Log</a></header>
+<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><select id="sort" aria-label="Order" title="The order of the memos: Rank (due soon, then impact per effort) or Recently updated (the newest send, note, edit, or return from a postpone first)"><option value="rank">Rank</option><option value="updated">Recently updated</option></select><button id="compact" type="button" aria-pressed="false" title="Collapse all memos to their name and next step. A click on a memo opens it. A click here when all are collapsed shows all memos in full. Key: c">Collapse</button><a href="/agents">Agents</a><a href="/log">Log</a></header>
 <form id="token-form" hidden>
   <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
   <button>Save</button>
@@ -37,7 +37,7 @@ import { render as markdown, summary } from '/ui/markdown.js';
 import { enterSends, fieldHeight } from '/ui/keys.js';
 import { withFeedback } from '/ui/feedback.js';
 import { workSigns, signText } from '/ui/working.js';
-import { shownMemos, step, countText, filterChoices, tagSuggestions, todayIn, addDays, nextMonday, dueWarning, COMPACT_NOTE, compactAsked, shownNotes } from '/ui/filter.js';
+import { shownMemos, sortedMemos, sortChoice, step, countText, filterChoices, tagSuggestions, todayIn, addDays, nextMonday, dueWarning, COMPACT_NOTE, compactAsked, shownNotes } from '/ui/filter.js';
 
 const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
@@ -91,7 +91,9 @@ function toggleOpen(id) {
   select(id);
   node.scrollIntoView({ behavior: 'instant', block: 'nearest' });
 }
-const factsOf = (memo) => ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}`;
+// In the Recently updated order, a memo that changed after its send shows the time of that change too.
+const changedAt = (memo) => (sort === 'updated' && memo.updated && memo.updated !== memo.created ? ` · updated ${age(memo.updated)}` : '');
+const factsOf = (memo) => ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}${changedAt(memo)}`;
 const newTag = (memo) => (memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'));
 function briefView(memo) {
   const notes = shownNotes(memo).length;
@@ -370,7 +372,7 @@ const FILTER_KEY = 'memo-filter';
 const filterMenu = document.getElementById('filter');
 let filter = 'all';
 try { filter = localStorage.getItem(FILTER_KEY) || (localStorage.getItem('memo-work-only') === '1' ? 'work' : 'all'); } catch { /* a private window: All */ }
-const shown = () => shownMemos(memos, filter);
+const shown = () => sortedMemos(shownMemos(memos, filter), sort);
 function setFilter(next) {
   filter = next;
   try { localStorage.setItem(FILTER_KEY, next); } catch { /* a private window: the choice stays in memory */ }
@@ -378,6 +380,20 @@ function setFilter(next) {
   nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
 }
 filterMenu.addEventListener('change', () => { setFilter(filterMenu.value); filterMenu.blur(); });
+
+// The order of the list: Rank (the order of the server) or Recently updated (the newest change first). The device
+// keeps the choice. In the Recently updated order, the ticks are at the top: their places belong to the rank order.
+const SORT_KEY = 'memo-sort';
+const sortMenu = document.getElementById('sort');
+let sort = 'rank';
+try { sort = sortChoice(localStorage.getItem(SORT_KEY)); } catch { /* a private window: Rank */ }
+function setSort(next) {
+  sort = sortChoice(next);
+  try { localStorage.setItem(SORT_KEY, sort); } catch { /* a private window: the choice stays in memory */ }
+  render();
+  nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+}
+sortMenu.addEventListener('change', () => { setSort(sortMenu.value); sortMenu.blur(); });
 
 function render() {
   const list = shown();
@@ -388,10 +404,13 @@ function render() {
   for (const timer of waiting.values()) clearTimeout(timer);
   waiting.clear();
   queue.replaceChildren(...list.map(view));
-  for (const tick of rows) queue.insertBefore(tickView(tick), tick.before === null ? null : nodeOf(tick.before) || null);
+  const first = queue.firstChild;
+  for (const tick of rows) queue.insertBefore(tickView(tick), sort === 'updated' ? first : tick.before === null ? null : nodeOf(tick.before) || null);
   loadImages(queue);
   filterMenu.replaceChildren(...filterChoices(memos, filter).map(([value, label]) => el('option', { value, selected: value === filter }, label)));
   filterMenu.classList.toggle('on', filtered);
+  sortMenu.value = sort;
+  sortMenu.classList.toggle('on', sort !== 'rank');
   compactButton.classList.toggle('on', compact);
   compactButton.setAttribute('aria-pressed', String(compact));
   document.getElementById('count').textContent = countText(list.length, memos.length, filtered);

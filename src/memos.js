@@ -1,4 +1,4 @@
-import { EFFORTS, sortQueue } from './rank.js';
+import { EFFORTS, sortQueue, updatedTime } from './rank.js';
 import { setCheckBox, summary } from '../ui/markdown.js';
 import { createEvents } from './events.js';
 
@@ -344,7 +344,11 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     wake();
     const rows = db.prepare(`SELECT * FROM memos WHERE recipient = ? AND state = 'open' ORDER BY id`).all(to)
       .filter((r) => withPostponed || !r.until).map(withNotes);
-    return to === owner ? sortQueue(rows, now()) : rows;
+    if (to !== owner) return rows;
+    // updated: the time of the last change, for the "Recently updated" order of the Inbox. An edit has no column
+    // in memos, so its time comes from the event log (an edit from before the log has no time).
+    const lastEdit = db.prepare(`SELECT MAX(at) AS at FROM events WHERE memo_id = ? AND kind = 'edit'`);
+    return sortQueue(rows.map((m) => ({ ...m, updated: updatedTime(m, lastEdit.get(m.id)?.at) })), now());
   }
 
   // The postponed memos of the owner, the first to come back first.

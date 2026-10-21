@@ -140,6 +140,9 @@ test('the liaison token cannot act as cam or read the queue of cam', async () =>
   assert.equal((await as('/api/recap', { agent: 'main', text: 'x' })).status, 403);
   assert.equal((await as('/api/status', { agent: 'main', text: 'x' })).status, 403);
   assert.equal((await as('/api/agent/prompt?name=main')).status, 403);
+  assert.equal((await as('/api/agent/screen?name=main')).status, 403);
+  assert.equal((await as('/api/agent/screen', { name: 'main', text: 'x' })).status, 403);
+  assert.equal((await as('/api/agent/key', { name: 'main', key: 'Escape' })).status, 403);
 });
 
 test('the liaison token cannot mark its own memo as trusted', async () => {
@@ -228,6 +231,19 @@ test('a request for news makes a remote agent online', async () => {
   assert.equal((await call(app, '/api/news?for=mac')).status, 200);
   assert.equal((await mac()).online, true);
   assert.equal((await call(app, '/api/agent/start', { name: 'mac' })).status, 400);
+});
+
+test('the screen routes show a session, and a key for a remote agent goes back with its next screen', async () => {
+  const { app, sessions } = makeApp({ config: [{ name: 'main', kind: 'long', dir: '~/p', model: 'm' }, { name: 'mac', kind: 'remote' }] });
+  sessions.add('memo-main');
+  assert.equal((await call(app, '/api/agent/screen?name=main')).data.text, 'Screen of memo-main');
+  assert.equal((await call(app, '/api/agent/key', { name: 'main', key: 'Escape' })).data.sent, true);
+  assert.equal((await call(app, '/api/agent/key', { name: 'main', key: 'C-c' })).status, 400);
+  assert.equal((await call(app, '/api/agent/key', { name: 'mac', key: 'Enter' })).data.queued, true);
+  const r = await call(app, '/api/agent/screen', { name: 'mac', text: 'Teach auto mode?' });
+  assert.deepEqual(r.data.keys, ['Enter']);
+  assert.deepEqual((await call(app, '/api/agent/screen', { name: 'mac', text: 'Teach auto mode?' })).data.keys, []);
+  assert.equal((await call(app, '/api/agent/screen?name=mac')).data.text, 'Teach auto mode?');
 });
 
 test('the note route keeps the memo open, and the liaison token cannot use it', async () => {

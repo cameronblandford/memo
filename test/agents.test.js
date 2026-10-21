@@ -23,6 +23,9 @@ function fakeTmux() {
     start: (s, command) => { sessions.add(s); calls.push(['start', s, command]); },
     kill: (s) => { sessions.delete(s); calls.push(['kill', s]); },
     send: (s, text) => { calls.push(['send', s, text]); },
+    screens: new Map(),
+    capture(s) { return this.screens.get(s) ?? ''; },
+    key: (s, key) => { calls.push(['key', s, key]); },
   };
 }
 
@@ -293,4 +296,61 @@ test('a remote agent gets its charter and its recap from the server', () => {
   agents.recap('mac', 'The sync is complete.');
   assert.ok(agents.prompt('mac').startsWith('# Charter: mac'));
   assert.ok(agents.prompt('mac').includes('The sync is complete.'));
+});
+
+test('the screen of a long agent is the tail of its tmux session, with no blank lines at the end', () => {
+  const { agents, tmux } = make();
+  assert.equal(agents.screen('main').text, null);
+  agents.start('main');
+  const lines = Array.from({ length: 100 }, (_, i) => `line ${i + 1}   `);
+  tmux.screens.set(session('main'), `${lines.join('\n')}\n\n\n`);
+  const screen = agents.screen('main');
+  assert.equal(screen.text.split('\n').length, 80);
+  assert.ok(screen.text.startsWith('line 21\n'));
+  assert.ok(screen.text.endsWith('line 100'));
+  assert.ok(screen.at);
+  refuses(() => agents.screen('liaison'), 400, 'no session');
+  refuses(() => agents.screen('nobody'), 400, 'No agent');
+});
+
+test('a remote agent sends its screen, and the server keeps the last one', () => {
+  let time = Date.parse('2026-01-01T10:00:00Z');
+  const { agents } = make({ config: WITH_REMOTE, now: () => new Date(time) });
+  assert.equal(agents.screen('mac').text, null);
+  agents.setScreen('mac', 'Working on it.\n\n');
+  assert.equal(agents.screen('mac').text, 'Working on it.');
+  assert.equal(agents.screen('mac').at, '2026-01-01T10:00:00.000Z');
+  assert.equal(row(agents, 'mac').online, true);
+  agents.setScreen('mac', 'x'.repeat(50000));
+  assert.ok(agents.screen('mac').text.length <= 20000);
+  refuses(() => agents.setScreen('main', 'text'), 400, 'remote');
+  refuses(() => agents.setScreen('mac', 7), 400, 'text');
+});
+
+test('a key goes to the session of a long agent, or waits for the next screen of a remote agent', () => {
+  const { agents, tmux } = make({ config: WITH_REMOTE });
+  refuses(() => agents.key('main', 'Escape'), 400, 'no session');
+  agents.start('main');
+  assert.deepEqual(agents.key('main', 'Escape'), { name: 'main', sent: true });
+  assert.deepEqual(tmux.calls.at(-1), ['key', session('main'), 'Escape']);
+  refuses(() => agents.key('main', 'C-c'), 400, 'Escape or Enter');
+  refuses(() => agents.key('liaison', 'Enter'), 400, 'no session');
+  assert.deepEqual(agents.key('mac', 'Escape'), { name: 'mac', queued: true });
+  agents.key('mac', 'Enter');
+  assert.deepEqual(agents.setScreen('mac', 'text').keys, ['Escape', 'Enter']);
+  assert.deepEqual(agents.setScreen('mac', 'text').keys, []);
+});
+
+test('the screen says when a dialog waits and when the text last changed', () => {
+  let time = Date.parse('2026-01-01T10:00:00Z');
+  const { agents, tmux } = make({ now: () => new Date(time) });
+  agents.start('main');
+  tmux.screens.set(session('main'), 'Working.');
+  assert.equal(agents.screen('main').dialog, false);
+  assert.equal(agents.screen('main').changed, '2026-01-01T10:00:00.000Z');
+  time += 60000;
+  assert.equal(agents.screen('main').changed, '2026-01-01T10:00:00.000Z');
+  tmux.screens.set(session('main'), 'Teach auto mode about your environment?\n  Enter to confirm · Esc to cancel');
+  assert.equal(agents.screen('main').dialog, true);
+  assert.equal(agents.screen('main').changed, '2026-01-01T10:01:00.000Z');
 });

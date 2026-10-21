@@ -12,9 +12,25 @@ header h1 { margin: 0; font-size: 1.4rem; }
 header a { margin-left: auto; color: var(--dim); font-size: .9rem; }
 header a + a { margin-left: 0; }
 /* The filter of the top bar. It has the accent color when it hides memos. */
-#filter { margin-left: auto; max-width: 9rem; padding: .15rem .5rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
+#filter { margin-left: auto; }
 #filter + a, #compact + a { margin-left: 0; }
-#filter.on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+/* The filter and the order of the Inbox are pills. The filter has the accent color when it hides memos; the order has it when it is not Rank.
+   The right padding keeps the text clear of the arrow. */
+#filter, #sort { max-width: 10rem; padding: .15rem 1.6rem .15rem .6rem; border-radius: 1rem; color: var(--dim); font-size: .85rem;
+  background-size: .35rem .35rem; background-position: right .85rem center, right .55rem center; }
+/* The arrow of the active pill is in the panel color, so it shows on the accent. */
+#filter.on, #sort.on { background-color: var(--accent); border-color: var(--accent); color: var(--panel);
+  background-image: linear-gradient(45deg, transparent 50%, var(--panel) 50%, var(--panel) 62%, transparent 62%), linear-gradient(-45deg, transparent 50%, var(--panel) 50%, var(--panel) 62%, transparent 62%); }
+/* On a phone the top bar of the Inbox has two lines: the name and the links, then the filter, the order, and Collapse. */
+@media (max-width: 40rem) {
+  header:has(#sort) { flex-wrap: wrap; row-gap: .5rem; align-items: center; }
+  header:has(#sort) #count { white-space: nowrap; }
+  header:has(#sort)::after { content: ''; order: 1; flex-basis: 100%; height: 0; }
+  header:has(#sort) #filter { order: 2; margin-left: 0; }
+  header:has(#sort) #sort { order: 3; }
+  header:has(#sort) #compact { order: 4; }
+  header:has(#sort) a:first-of-type { margin-left: auto; }
+}
 /* The Compact button of the top bar. It has the accent color when the compact view is on. */
 #compact { padding: .15rem .6rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
 #compact.on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
@@ -30,6 +46,10 @@ header a + a { margin-left: 0; }
 form { display: flex; gap: .5rem; margin-bottom: 1rem; }
 input, textarea, select, button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: .5rem; padding: .5rem .65rem; }
 input, textarea { flex: 1; min-width: 0; width: 100%; }
+/* The select draws its own arrow, so the arrow has the same space from the edge as the text. */
+select { appearance: none; -webkit-appearance: none; padding-right: 2rem; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, #888 50%, #888 62%, transparent 62%), linear-gradient(-45deg, transparent 50%, #888 50%, #888 62%, transparent 62%);
+  background-repeat: no-repeat; background-size: .4rem .4rem; background-position: right 1.05rem center, right .65rem center; }
 textarea { display: block; resize: vertical; margin: .5rem 0; }
 #capture { align-items: flex-end; }
 #capture { flex-wrap: wrap; }

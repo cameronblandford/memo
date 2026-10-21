@@ -267,6 +267,21 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     const { bytes, type } = images.read(c.req.param('name'));
     return c.body(bytes, 200, { 'Content-Type': type, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, max-age=31536000, immutable' });
   });
+  // The tail of an agent session for the Agents page, and the keys that close a dialog in it.
+  app.get('/api/agent/screen', (c) => {
+    only(c, false);
+    return c.json(agents.screen(c.req.query('name')));
+  });
+  app.post('/api/agent/screen', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(agents.setScreen(b.name, b.text));
+  });
+  app.post('/api/agent/key', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(agents.key(b.name, b.key));
+  });
   app.get('/api/agent/prompt', (c) => {
     only(c, false);
     return c.text(agents.prompt(c.req.query('name')));
