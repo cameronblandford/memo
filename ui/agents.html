@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Memo Agents</title>
 <link rel="stylesheet" href="/ui/common.css">
+<style>
+.output { max-height: 24rem; overflow-y: auto; margin-top: .4rem; padding: .25rem .6rem; border: 1px solid var(--line); border-radius: .5rem; font-size: .9rem; }
+.output .entry { padding: .3rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.output .entry:last-child { border-bottom: 0; }
+.output .entry.tool { color: var(--dim); font-size: .85rem; }
+.output .tool-name { color: var(--accent); font-family: ui-monospace, Menlo, monospace; font-size: .8rem; }
+.output .md > :first-child { margin-top: 0; }
+.output .md > :last-child { margin-bottom: 0; }
+</style>
 </head>
 <body>
 <header><h1>Agents</h1><a href="/inbox">Inbox</a></header>
@@ -45,15 +54,75 @@ function view(agent) {
     parts.push(el('details', { open: true }, el('summary', {}, `Recap, ${age(agent.recap_at)}`), el('div', { className: 'md' }, ...markdown(agent.recap, el))));
   }
   if (agent.kind === 'long') parts.push(el('div', { className: 'row' }, control(agent)));
-  return el('article', { className: 'memo' }, ...parts);
+  return parts;
+}
+
+// One card for each agent. The card stays in the page, so its output box keeps its place and its scroll.
+const cards = new Map(); // name -> { article, head, output }
+
+function card(agent) {
+  let c = cards.get(agent.name);
+  if (!c) {
+    const head = el('div');
+    c = { article: el('article', { className: 'memo' }, head), head, output: null };
+    cards.set(agent.name, c);
+  }
+  c.head.replaceChildren(...view(agent));
+  if (agent.output && !c.output) {
+    c.output = { box: el('div', { className: 'output', role: 'log', ariaLabel: `Output of ${agent.name}` }, el('p', { className: 'dim' }, 'No output yet.')), file: null, cursor: null };
+    c.article.append(el('details', { open: true }, el('summary', {}, 'Live output'), c.output.box));
+  }
+  return c.article;
 }
 
 async function load() {
   try {
-    list.replaceChildren(...(await api('/api/agents')).map(view));
+    const agents = await api('/api/agents');
+    const articles = agents.map(card);
+    // Put the cards in the list only when the list changes. To move a card resets the scroll of its box.
+    if (articles.length !== list.children.length || articles.some((a, i) => list.children[i] !== a)) list.replaceChildren(...articles);
     loadImages(list);
     note('');
   } catch (error) { note(error.message); }
+}
+
+const MAX_ENTRIES = 50;
+const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
+
+function entry(e) {
+  if (e.kind === 'tool') {
+    return el('div', { className: 'entry tool', title: clock(e.at) }, el('span', { className: 'tool-name' }, e.name), e.description ? ` ${e.description}` : '');
+  }
+  return el('div', { className: 'entry text md', title: clock(e.at) }, ...markdown(e.text, el));
+}
+
+let busy = false;
+async function poll() {
+  if (busy) return;
+  busy = true;
+  try {
+    for (const [name, c] of cards) {
+      const out = c.output;
+      if (!out) continue;
+      const q = new URLSearchParams({ name });
+      if (out.file) { q.set('file', out.file); q.set('cursor', out.cursor); }
+      const r = await api(`/api/agent/output?${q}`);
+      const box = out.box;
+      // Follow the end only if the reader is at the end. A reader who scrolled up keeps the place.
+      const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+      if (r.reset) box.replaceChildren();
+      if (r.reset || r.entries.length) {
+        box.querySelector(':scope > p.dim')?.remove();
+        box.append(...r.entries.map(entry));
+        while (box.children.length > MAX_ENTRIES) box.firstChild.remove();
+        if (!box.children.length) box.append(el('p', { className: 'dim' }, 'No output yet.'));
+        if (atEnd || r.reset) box.scrollTop = box.scrollHeight;
+      }
+      out.file = r.file;
+      out.cursor = r.cursor;
+    }
+  } catch { /* the next poll tries again; load() shows the error */ }
+  busy = false;
 }
 async function run(path, body) {
   try { await api(path, body); } catch (error) { note(error.message); return; }
@@ -61,8 +130,9 @@ async function run(path, body) {
 }
 
 tokenForm(load);
-load();
+load().then(poll);
 setInterval(load, 5000);
+setInterval(poll, 3000);
 </script>
 </body>
 </html>

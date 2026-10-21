@@ -202,6 +202,12 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     only(c, false);
     return c.json(agents.list());
   });
+  // The live output of an agent: its visible text and the names and descriptions of its tool calls, after the cursor.
+  app.get('/api/agent/output', (c) => {
+    only(c, false);
+    const q = (k) => c.req.query(k);
+    return c.json(agents.output(q('name'), { file: q('file'), cursor: q('cursor') }));
+  });
   // The Inbox: the open memos to the owner in their order, and the ticks of now with their places in that order.
   app.get('/api/queue', (c) => {
     only(c, false);

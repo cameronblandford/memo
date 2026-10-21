@@ -155,6 +155,8 @@ Open `http://127.0.0.1:3280/agents`. Each agent has one row: its state, its stat
 
 The agents are in `agents.json`. To add an agent, add an entry and a file `charters/<name>.md`, then restart the server.
 
+To show the live output of an agent on the Agents page, give it the directory of its Claude Code transcripts, for example `"transcripts": "~/.claude/projects/-Users-you-work"` (the name is the `dir` of the agent with each `/` changed to `-`). The page asks for new output each 3 seconds and shows the last 50 entries of the newest `.jsonl` file there. It shows only the visible text of the agent and, for each tool call, the tool name and its short description: never tool inputs, tool results, or thinking. An agent with no `transcripts` shows no output.
+
 ## An agent on a different computer
 
 A remote agent has its session on a different computer from the server. Use it when the server is always on (for example in the cloud) and some work needs a computer that is not always on.
