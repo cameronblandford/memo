@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
 import { createStore, MemoError } from '../src/memos.js';
+import { COMPACT_NOTE } from '../ui/filter.js';
 
 const NAMES = ['cam', 'discord', 'main', 'liaison'];
 function makeStore() {
@@ -177,6 +178,7 @@ test('counts gives the work of the owner that waits for an agent: open memos and
   s.reply(3, 'Done.');
   const note = s.get(1).notes[0];
   assert.deepEqual([s.counts('main').owner_open, s.counts('main').owner_since], [1, note.created]);
+  s.news('main');
   s.note(1, 'main', 'I use it.');
   assert.deepEqual([s.counts('main').owner_open, s.counts('main').owner_since], [0, null]);
   // A memo from a different sender does not count for main.
@@ -310,6 +312,7 @@ test('an answer of the sender marks the note as read and shows the memo as updat
   s.seen([id]);
   s.note(id, 'cam', 'Add the price, please.');
   assert.equal(s.get(id).seen, 1, 'a note of the owner does not make the memo new for the owner');
+  s.news('main');
   const m = s.note(id, 'main', 'The price is $14.');
   assert.deepEqual(m.notes.map((n) => [n.author, n.read]), [['cam', 1], ['main', 0]]);
   assert.equal(m.seen, 2);
@@ -321,10 +324,51 @@ test('ack of an open memo marks the notes of the owner as read, with no answer',
   const { s, id } = withMemo();
   refusesNote(() => s.ack(id), 409, 'open');
   s.note(id, 'cam', 'I read this later.');
+  s.news('main');
   assert.equal(s.ack(id).notes[0].read, 1);
   assert.deepEqual(s.news('main').noted, []);
   assert.equal(s.get(id).acked, 0);
   refusesNote(() => s.ack(id), 409, 'open');
+});
+
+// A note of the owner is read only when the sender got it from memo wait or memo list. A note that came
+// after the last delivery stays unread, so the next memo wait gives it.
+test('a note, an edit, or an ack of the sender marks only the notes of the owner that the sender got', () => {
+  const { s, id } = withMemo();
+  s.note(id, 'cam', 'First question.');
+  s.news('main'); // main gets the first note
+  s.note(id, 'cam', 'Second question.'); // main has not got this one
+  let m = s.note(id, 'main', 'Answer to the first.');
+  assert.deepEqual(m.notes.map((n) => [n.text, n.read]), [['First question.', 1], ['Second question.', 0], ['Answer to the first.', 0]]);
+  assert.deepEqual(s.news('main').noted.map((c) => c.id), [id], 'the second note comes in the next memo wait');
+  s.note(id, 'cam', 'Third question.');
+  m = s.edit(id, 'Approve the plan? (changed for the second note)');
+  assert.deepEqual(m.notes.filter((n) => n.author === 'cam').map((n) => n.read), [1, 1, 0]);
+  refusesNote(() => s.ack(id), 409, 'did not get');
+  assert.equal(s.get(id).notes.at(-1).read, 0);
+  s.news('main');
+  assert.equal(s.ack(id).notes.every((n) => n.author !== 'cam' || n.read), true);
+});
+
+test('a note of the owner marks all notes of the sender as read: the Inbox shows all of them', () => {
+  const { s, id } = withMemo();
+  s.note(id, 'cam', 'A question.');
+  s.news('main');
+  s.note(id, 'main', 'One.');
+  s.note(id, 'main', 'Two.');
+  const m = s.note(id, 'cam', 'Thanks.');
+  assert.deepEqual(m.notes.filter((n) => n.author === 'main').map((n) => n.read), [1, 1]);
+});
+
+test('a note from before the event log counts as got when the memo has a delivery', () => {
+  const db = openDb();
+  const s = createStore(db, { names: ['cam', 'discord', 'main', 'liaison'], owner: 'cam' });
+  const { memo } = s.send({ from: 'main', to: 'cam', text: 'Old memo', impact: 3, effort: 'short' });
+  db.prepare("INSERT INTO notes (memo_id, author, text, created) VALUES (?, 'cam', 'old note', '2026-01-01T00:00:00Z')").run(memo.id);
+  refusesNote(() => s.ack(memo.id), 409, 'did not get');
+  s.news('main');
+  s.note(memo.id, 'cam', 'New note.'); // after the delivery
+  assert.deepEqual(s.ack(memo.id).notes.map((n) => [n.text, n.read]), [['old note', 1], ['New note.', 0]]);
 });
 
 test('note refuses a wrong party, a closed memo, a memo to an agent, and a text that is too long', () => {
@@ -377,7 +421,7 @@ test('compact closes an open memo to cam and sends a short new memo with the sam
   const s = makeStore();
   const { memo: old } = s.send({ ...toCam, impact: 3, effort: 'hour', due: '2026-11-01', tags: ['work', 'money'], title: 'Deploy', next: 'Reply yes' });
   s.seen([old.id]);
-  s.note(old.id, 'cam', 'Compact this memo, please.');
+  s.note(old.id, 'cam', COMPACT_NOTE);
   const { memo, old: closed } = s.compact(old.id, 'main', { text: '- [x] Tests\n- [ ] Approve the deploy' });
   assert.equal(memo.id, 2);
   assert.equal(memo.sender, 'main');
@@ -400,6 +444,22 @@ test('compact closes an open memo to cam and sends a short new memo with the sam
   assert.deepEqual(news.results, []);
   assert.deepEqual(news.noted, []);
   assert.deepEqual(s.list('cam').map((c) => c.id), [2]);
+});
+
+test('compact refuses a memo with a note of the owner that is not read, and keeps the memo open', () => {
+  const s = makeStore();
+  s.send(toCam);
+  s.note(1, 'cam', COMPACT_NOTE);
+  s.note(1, 'cam', 'Also add the price.');
+  refuses(() => s.compact(1, 'main', { text: 'Short.' }), 409, 'not read');
+  assert.equal(s.get(1).state, 'open');
+  assert.equal(s.list('cam').length, 1, 'a refused compact sends nothing');
+  // The sender gets the note, answers it in the new text and acks it. Then the compact works.
+  s.news('main');
+  s.ack(1);
+  const { memo, old } = s.compact(1, 'main', { text: 'Short, with the price.' });
+  assert.equal(old.state, 'closed');
+  assert.equal(memo.id, 2);
 });
 
 test('compact takes a new title and next step, and an empty part removes it', () => {

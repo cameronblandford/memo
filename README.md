@@ -87,7 +87,7 @@ A memo with a tag that is not on the screen gets a toast in the corner of the pa
 
 A list item that starts with `[ ]` or `[x]` (for example `- [ ] Rain jacket`) shows as a check box. The owner can tick it on the Inbox page. The server saves the state in the text of the memo, so it is the same on each device, and the agent sees it when it reads the memo.
 
-The button "Note" sends the text of the reply field to the sender of the memo, and the memo stays open in the Inbox with its place in the queue. Use it to ask for a change or for more data. The notes show below the memo text, with the answers of the agent. `memo wait` gives the agent each memo with a note that it did not read. The agent answers with `memo note <id> --from <name> "<text>"`, changes the memo with `memo edit`, or runs `memo ack <id>` when no answer is necessary. "Reply" and "Close" end the memo as before.
+The button "Note" sends the text of the reply field to the sender of the memo, and the memo stays open in the Inbox with its place in the queue. Use it to ask for a change or for more data. The notes show below the memo text, with the answers of the agent. `memo wait` gives the agent each memo with a note that it did not read. The agent answers with `memo note <id> --from <name> "<text>"`, changes the memo with `memo edit`, or runs `memo ack <id>` when no answer is necessary. A note, an edit, or an ack of the agent marks as read only the notes of the owner that `memo wait` or `memo list` gave to the agent; a later note stays unread and comes in the next `memo wait`. `memo compact` is refused while the memo has a note of the owner that is not read (other than the Shorten request). "Reply" and "Close" end the memo as before.
 
 The button "Shorten" is on each memo from an agent. It adds a fixed note that asks the agent to make the memo short. The Inbox does not show this note; the button shows "Asked" instead. The agent runs `memo compact <id> --from <name> -- "<new text>"`: the server closes the memo ("Compacted into memo #<new id>.") and sends a new memo with the new text and the impact, effort, due date, tags, and brief of the old memo. The new text has a short summary, the open items as check boxes, and the next step. The button shows "Asked" until the agent reads the note.
 
@@ -219,7 +219,7 @@ scripts/memo forward 12
 scripts/memo image ~/Desktop/shot.png "The new page"
 ```
 
-`memo wait` uses no model tokens. It exits with code 0 when a new memo arrives or a memo of the agent gets a result. It exits with code 2 at its time limit.
+`memo wait` uses no model tokens. It exits with code 0 when a new memo arrives or a memo of the agent gets a result. It exits with code 2 at its time limit. It prints the answers to the agent's memos first, with only the name of the agent's own memo, then the new memos. The output has 20000 characters or fewer (`MEMO_WAIT_MAX_CHARS`); the `memo ack` line names only the memos that it printed, and a last line tells how many more memos come in the next `memo wait`.
 
 ## Discord
 
