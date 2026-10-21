@@ -160,7 +160,28 @@ test('counts gives the open memos to and from a name', () => {
   s.send(toCam);
   s.send({ from: 'cam', to: 'main', text: 'Work.' });
   s.reply(1, 'Yes.');
-  assert.deepEqual(s.counts('main'), { open_to: 1, open_from: 1 });
+  assert.deepEqual(s.counts('main'), { open_to: 1, open_from: 1, owner_open: 1, owner_since: s.get(3).created });
+});
+
+test('counts gives the work of the owner that waits for an agent: open memos and unread notes', () => {
+  const s = makeStore();
+  assert.deepEqual(s.counts('main'), { open_to: 0, open_from: 0, owner_open: 0, owner_since: null });
+  s.send(toCam); // 1: from main to cam
+  s.send({ from: 'cam', to: 'main', text: 'Work.' }); // 2
+  s.send({ from: 'cam', to: 'main', text: 'More work.' }); // 3
+  assert.deepEqual([s.counts('main').owner_open, s.counts('main').owner_since], [2, s.get(2).created]);
+  // A note of the owner on a memo from main counts too, until main reads it.
+  s.note(1, 'cam', 'Use the other file.');
+  assert.equal(s.counts('main').owner_open, 3);
+  s.reply(2, 'Done.');
+  s.reply(3, 'Done.');
+  const note = s.get(1).notes[0];
+  assert.deepEqual([s.counts('main').owner_open, s.counts('main').owner_since], [1, note.created]);
+  s.note(1, 'main', 'I use it.');
+  assert.deepEqual([s.counts('main').owner_open, s.counts('main').owner_since], [0, null]);
+  // A memo from a different sender does not count for main.
+  s.send({ from: 'cam', to: 'liaison', text: 'Look.' });
+  assert.equal(s.counts('main').owner_open, 0);
 });
 
 test('forward copies a trusted Discord memo to an agent as a memo from cam', () => {

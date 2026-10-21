@@ -157,6 +157,14 @@ The row of an agent with a session also shows the screen: the last 80 lines of i
 
 The agents are in `agents.json`. To add an agent, add an entry and a file `charters/<name>.md`, then restart the server.
 
+## The Log page
+
+Open `http://127.0.0.1:3280/log`. It shows what is on its way to each agent, and what happened to each memo.
+
+- "In flight": for each agent, its open memos, the answers that it did not ack, and the notes of the owner that it did not read. Each line tells if `memo wait` or `memo list` delivered the memo after its last change, or if `memo wait --hold` holds it. The first line of the agent tells when its `memo wait` asked last.
+- "Events": the steps of the memos (send, delivered, seen, note, edit, brief, reply, close, ack, compact, postpone, forward) and the status lines, newest first. Filter by agent or by memo id; `/log?memo=42` shows one memo.
+- The server writes the events to the table `events`. The table is append-only. An event has the title or the first 80 characters of a text, never the full text.
+
 ## An agent on a different computer
 
 A remote agent has its session on a different computer from the server. Use it when the server is always on (for example in the cloud) and some work needs a computer that is not always on.
@@ -249,6 +257,7 @@ To scan a range by hand: `scripts/pre-push-scan.sh --range origin/main..main`
 | `src/memos.js` | The memo rules. |
 | `src/ticks.js` | The ticks: their schedule and their place in the queue. |
 | `src/agents.js` | Status, recap, and tmux control of the agents. |
+| `src/events.js` | The event log of the Log page. |
 | `src/app.js` | The HTTP routes and the two tokens. |
 | `scripts/memo.mjs` | The command-line client. |
 | `scripts/agent.sh` | Starts the session of a long agent. |

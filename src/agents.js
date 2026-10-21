@@ -3,6 +3,7 @@ import { localFile } from './paths.js';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { MemoError } from './memos.js';
+import { createEvents } from './events.js';
 
 // The charters quote the stop message, so it starts with the name of the owner with a capital letter.
 const title = (owner) => owner[0].toUpperCase() + owner.slice(1);
@@ -80,6 +81,7 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
   const contacts = new Map(); // remote agent -> the time of its last request, in milliseconds
   const screens = new Map(); // agent -> { text, at, changed }: the last screen, its time, and the time of its last change
   const keys = new Map(); // remote agent -> the keys that wait for its next screen
+  const events = createEvents(db, now);
   for (const a of config) db.prepare('INSERT OR IGNORE INTO status (agent) VALUES (?)').run(a.name);
 
   const row = (name) => ({ ...db.prepare('SELECT * FROM status WHERE agent = ?').get(name) });
@@ -123,8 +125,18 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     });
   }
 
+  // For the work sign of the Inbox: each agent with a session, its status line, and its counts. This does not ask
+  // tmux, so the Inbox can get it on each refresh at a low cost.
+  function work() {
+    return config.filter((a) => a.kind !== 'short').map((a) => {
+      const r = row(a.name);
+      return { name: a.name, status: r.text, updated: r.updated, ...counts(a.name) };
+    });
+  }
+
   function start(name) {
     known(name, 'long');
+    events.add(owner, null, 'start', name);
     const wasStopping = !!row(name).stopping_since;
     cancel(name);
     set(name, { wanted: 1 });
@@ -136,6 +148,7 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
 
   function stop(name, { now: immediately = false } = {}) {
     known(name, 'long');
+    events.add(owner, null, 'stop', immediately ? `${name}, now` : name);
     set(name, { wanted: 0 });
     if (!running(name)) { cancel(name); return { name, running: false, stopping: false }; }
     if (immediately) { finish(name, 'now'); return { name, running: false, stopping: false }; }
@@ -154,6 +167,7 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     if (typeof text !== 'string' || !text.trim()) throw new MemoError(400, 'text is necessary.');
     if (text.length > MAX_RECAP) throw new MemoError(400, `A recap must have ${MAX_RECAP} characters or fewer. This recap has ${text.length}.`);
     set(name, { recap: text, recap_at: ts() });
+    events.add(name, null, 'recap', text);
     const stopped = !!row(name).stopping_since;
     if (stopped) finish(name, 'recap');
     return { name, saved: true, stopped };
@@ -206,6 +220,7 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     contact(name);
     if (typeof text !== 'string' || !text.trim()) throw new MemoError(400, 'text is necessary.');
     set(name, { text: text.replace(/\s+/g, ' ').trim().slice(0, MAX_STATUS), updated: ts() });
+    events.add(name, null, 'status', text);
     return { name, saved: true };
   }
 
@@ -232,5 +247,5 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     }
   }
 
-  return { list, start, stop, recap, setStatus, prompt, defaultAgent, resume, contact, screen, setScreen, key };
+  return { list, work, start, stop, recap, setStatus, prompt, defaultAgent, resume, contact, screen, setScreen, key };
 }

@@ -308,7 +308,8 @@ const commands = {
     const interval = Number(process.env.MEMO_WAIT_INTERVAL_MS || 30000);
     const end = Date.now() + minutes * 60000;
     for (;;) {
-      const news = await call(`/api/news?for=${query(who)}`, undefined, { soft: true });
+      // The server gets the held ids too, so the Log page can show them.
+      const news = await call(`/api/news?for=${query(who)}${hold.length ? `&hold=${hold.join(',')}` : ''}`, undefined, { soft: true });
       if (news) {
         const fresh = news.to_you.filter((c) => !hold.includes(c.id));
         const noted = news.noted || [];

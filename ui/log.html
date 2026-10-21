@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memo Log</title>
+<link rel="stylesheet" href="/ui/common.css">
+</head>
+<body>
+<header><h1>Log</h1><a href="/inbox">Inbox</a><a href="/agents">Agents</a></header>
+<form id="token-form" hidden>
+  <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
+  <button>Save</button>
+</form>
+<p id="note" role="status" hidden></p>
+<h2>In flight</h2>
+<main id="flight"></main>
+<h2>Events</h2>
+<form id="filters">
+  <select name="agent" aria-label="Agent"><option value="">All agents</option></select>
+  <input name="memo" type="text" inputmode="numeric" placeholder="Memo id" autocomplete="off" aria-label="Memo id">
+</form>
+<div id="events"></div>
+<footer>In flight: the open memos to each agent, the answers that the agent did not ack, and the notes that it did not read. Delivered: memo wait or memo list gave the memo to the agent after its last change. The page loads again each 5 seconds.</footer>
+<script type="module">
+import { api, el, tokenForm, note, age } from '/ui/common.js';
+
+const flight = document.getElementById('flight');
+const events = document.getElementById('events');
+const filters = document.getElementById('filters');
+// The filter is in the address, so a link can show one memo: /log?memo=685
+const params = new URLSearchParams(location.search);
+let agentFilter = params.get('agent') || ''; // the select gets its options from the first answer
+filters.elements.memo.value = params.get('memo') || '';
+
+const STAGE = { open: 'open', result: 'answer not acked', note: 'note not read' };
+const LATE_MS = 10 * 60000; // after this time with no delivery or no ack, the line has the warning color
+const old = (iso) => iso && Date.now() - Date.parse(iso) > LATE_MS;
+const memoLink = (id) => el('a', { href: `/log?memo=${id}` }, `#${id}`);
+
+function delivery(m) {
+  if (m.held) return 'held by memo wait';
+  if (m.delivered) return `delivered ${age(m.delivered)}`;
+  return m.known ? 'not delivered yet' : 'before the log';
+}
+function flightRow(m) {
+  const late = !m.held && (m.stage === 'open' ? !m.delivered && m.known : true) && old(m.since);
+  return el('li', { className: late ? 'late' : '' },
+    el('div', { className: 'meta' }, memoLink(m.id), ` ${STAGE[m.stage]} · from ${m.sender} to ${m.recipient} · ${age(m.since)} · ${delivery(m)}`),
+    el('div', { className: 'line' }, m.line));
+}
+function pollText(poll) {
+  if (!poll) return 'No memo wait since the server started.';
+  return `memo wait asked ${age(poll.at)}${poll.hold.length ? ` · holds ${poll.hold.map((id) => `#${id}`).join(', ')}` : ''}`;
+}
+function agentView(a) {
+  return el('article', { className: 'memo' },
+    el('div', { className: 'meta' }, el('span', { className: 'sender' }, a.name), ` ${pollText(a.poll)}`),
+    a.memos.length ? el('ul', { className: 'flight' }, ...a.memos.map(flightRow)) : el('p', { className: 'dim' }, 'Nothing in flight.'));
+}
+
+const time = (iso) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' });
+function eventView(e) {
+  return el('div', { className: 'event' },
+    el('span', { className: 'when', title: e.at }, time(e.at)),
+    el('span', { className: 'what' },
+      el('span', { className: 'sender' }, e.actor), ' ', el('b', {}, e.kind), e.memo_id ? ' ' : '', e.memo_id ? memoLink(e.memo_id) : '',
+      e.detail ? el('span', { className: 'dim' }, ` ${e.detail}`) : ''));
+}
+
+let agentNames = '';
+async function load() {
+  const query = new URLSearchParams();
+  if (agentFilter) query.set('agent', agentFilter);
+  const memo = filters.elements.memo.value.trim().replace(/^#/, '');
+  if (memo) query.set('memo', memo);
+  try {
+    const data = await api(`/api/log?${query}`);
+    flight.replaceChildren(...data.inflight.map(agentView));
+    // The agent choices come from the server. They change only when agents.json changes.
+    const names = data.inflight.map((a) => a.name).join(',');
+    if (names !== agentNames) {
+      filters.elements.agent.replaceChildren(el('option', { value: '' }, 'All agents'), ...data.inflight.map((a) => el('option', { value: a.name }, a.name)));
+      filters.elements.agent.value = agentFilter;
+      agentNames = names;
+    }
+    events.replaceChildren(...(data.events.length ? data.events.map(eventView) : [el('p', { className: 'dim' }, 'No events.')]));
+    note('');
+  } catch (error) { note(error.message); }
+}
+function filterChanged() {
+  agentFilter = filters.elements.agent.value;
+  const query = new URLSearchParams();
+  for (const name of ['agent', 'memo']) if (filters.elements[name].value.trim()) query.set(name, filters.elements[name].value.trim());
+  history.replaceState(null, '', query.size ? `/log?${query}` : '/log');
+  load();
+}
+filters.addEventListener('submit', (event) => { event.preventDefault(); filterChanged(); });
+filters.elements.agent.addEventListener('change', filterChanged);
+filters.elements.memo.addEventListener('input', filterChanged);
+
+tokenForm(load);
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>

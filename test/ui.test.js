@@ -18,6 +18,7 @@ test('the two pages and the two shared files need no token', async () => {
   assert.match(agents.text, /<title>Memo Agents<\/title>/);
   assert.match((await get('/ui/common.js')).type, /javascript/);
   assert.match((await get('/ui/common.css')).type, /text\/css/);
+  assert.match((await get('/ui/working.js')).type, /javascript/);
   assert.equal((await get('/')).status, 302);
 });
 

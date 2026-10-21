@@ -75,6 +75,20 @@ export function openDb(path = ':memory:') {
     );
     CREATE INDEX IF NOT EXISTS notes_memo ON notes (memo_id);
   `);
+  // The event log of the Log page (src/events.js). It is append-only: the triggers refuse a change and a delete.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at TEXT NOT NULL,
+      actor TEXT NOT NULL,                  -- the name that did the step
+      memo_id INTEGER,                      -- NULL for a step with no memo, for example a status line
+      kind TEXT NOT NULL,                   -- send, delivered, seen, ack, note, reply, close, edit, brief, compact, ...
+      detail TEXT NOT NULL DEFAULT ''       -- a title or the first 80 characters, never the full text
+    );
+    CREATE INDEX IF NOT EXISTS events_memo ON events (memo_id);
+    CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+  `);
   // A database from before the overdue rule gets the column.
   if (!db.prepare('PRAGMA table_info(ticks)').all().some((c) => c.name === 'by')) {
     db.exec("ALTER TABLE ticks ADD COLUMN by TEXT NOT NULL DEFAULT ''");
