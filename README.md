@@ -157,6 +157,8 @@ The row of an agent with a session also shows the screen: the last 80 lines of i
 
 The agents are in `agents.json`. To add an agent, add an entry and a file `charters/<name>.md`, then restart the server.
 
+To show the live output of an agent on the Agents page, give it the directory of its Claude Code transcripts, for example `"transcripts": "~/.claude/projects/-Users-you-work"` (the name is the `dir` of the agent with each `/` changed to `-`). The page asks for new output each 3 seconds and shows the last 50 entries of the newest `.jsonl` file there. It shows only the visible text of the agent and, for each tool call, the tool name and its short description: never tool inputs, tool results, or thinking. An agent with no `transcripts` shows no output.
+
 ## The Log page
 
 Open `http://127.0.0.1:3280/log`. It shows what is on its way to each agent, and what happened to each memo.

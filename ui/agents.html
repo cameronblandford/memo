@@ -6,6 +6,13 @@
 <title>Memo Agents</title>
 <link rel="stylesheet" href="/ui/common.css">
 <style>
+.output { max-height: 24rem; overflow-y: auto; margin-top: .4rem; padding: .25rem .6rem; border: 1px solid var(--line); border-radius: .5rem; font-size: .9rem; }
+.output .entry { padding: .3rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.output .entry:last-child { border-bottom: 0; }
+.output .entry.tool { color: var(--dim); font-size: .85rem; }
+.output .tool-name { color: var(--accent); font-family: ui-monospace, Menlo, monospace; font-size: .8rem; }
+.output .md > :first-child { margin-top: 0; }
+.output .md > :last-child { margin-bottom: 0; }
 /* The tail of a session. It scrolls inside its box, so a long line does not make the page wider. */
 .screen pre { margin: .5rem 0; padding: .5rem .65rem; max-height: 22rem; overflow: auto; background: var(--bg); border: 1px solid var(--line);
   border-radius: .5rem; font: .72rem/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
@@ -88,7 +95,26 @@ function view(agent, screen) {
   }
   if (agent.kind !== 'short' && (agent.running || agent.kind === 'remote')) parts.push(screenView(agent, screen));
   if (agent.kind === 'long') parts.push(el('div', { className: 'row' }, control(agent)));
-  return el('article', { className: 'memo' }, ...parts);
+  return parts;
+}
+
+// One card for each agent. The card stays in the page, so its output box keeps its place and its scroll.
+const cards = new Map(); // name -> { article, head, output }
+
+function card(agent, screen) {
+  let c = cards.get(agent.name);
+  if (!c) {
+    const head = el('div');
+    c = { article: el('article', { className: 'memo' }, head), head, output: null };
+    c.article.dataset.name = agent.name;
+    cards.set(agent.name, c);
+  }
+  c.head.replaceChildren(...view(agent, screen));
+  if (agent.output && !c.output) {
+    c.output = { box: el('div', { className: 'output', role: 'log', ariaLabel: `Output of ${agent.name}` }, el('p', { className: 'dim' }, 'No output yet.')), file: null, cursor: null };
+    c.article.append(el('details', { open: true }, el('summary', {}, 'Live output'), c.output.box));
+  }
+  return c.article;
 }
 
 async function load() {
@@ -100,12 +126,56 @@ async function load() {
       screens.map((x) => x && [x.text, x.dialog, age(x.at), age(x.changed)])]);
     if (current === shown) return;
     shown = current;
-    // A rebuild of the list must not move the page or a screen that the owner scrolled.
+    // A rebuild of a card must not move the page or a screen that the owner scrolled.
     const scrolled = new Map([...list.querySelectorAll('article')].map((n) => [n.dataset.name, n.querySelector('.screen pre')]).filter(([, p]) => p && p.scrollTop + p.clientHeight < p.scrollHeight - 4).map(([name, p]) => [name, p.scrollTop]));
-    list.replaceChildren(...agents.map((a, i) => { const node = view(a, screens[i]); node.dataset.name = a.name; return node; }));
+    const articles = agents.map((a, i) => card(a, screens[i]));
+    // An agent that the server does not give any more loses its card, so poll() does not ask for it.
+    for (const name of cards.keys()) if (!agents.some((x) => x.name === name)) cards.delete(name);
+    // Put the cards in the list only when the list changes. To move a card resets the scroll of its output box.
+    if (articles.length !== list.children.length || articles.some((a, i) => list.children[i] !== a)) list.replaceChildren(...articles);
     for (const [name, top] of scrolled) { const p = list.querySelector(`article[data-name="${CSS.escape(name)}"] .screen pre`); if (p) requestAnimationFrame(() => { p.scrollTop = top; }); }
     loadImages(list);
   } catch (error) { note(error.message); keepNote = 0; }
+}
+
+const MAX_ENTRIES = 50;
+const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
+
+function entry(e) {
+  if (e.kind === 'tool') {
+    return el('div', { className: 'entry tool', title: clock(e.at) }, el('span', { className: 'tool-name' }, e.name), e.description ? ` ${e.description}` : '');
+  }
+  return el('div', { className: 'entry text md', title: clock(e.at) }, ...markdown(e.text, el));
+}
+
+let busy = false;
+async function poll() {
+  if (busy) return;
+  busy = true;
+  for (const [name, c] of cards) {
+    const out = c.output;
+    if (!out) continue;
+    // Each agent has its own try: an error for one agent does not stop the output of the others.
+    try {
+      const q = new URLSearchParams({ name });
+      if (out.file) { q.set('file', out.file); q.set('cursor', out.cursor); }
+      const r = await api(`/api/agent/output?${q}`);
+      const box = out.box;
+      // Follow the end only if the reader is at the end. A reader who scrolled up keeps the place.
+      const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+      if (r.reset) box.replaceChildren();
+      if (r.reset || r.entries.length) {
+        box.querySelector(':scope > p.dim')?.remove();
+        box.append(...r.entries.map(entry));
+        while (box.children.length > MAX_ENTRIES) box.firstChild.remove();
+        if (!box.children.length) box.append(el('p', { className: 'dim' }, 'No output yet.'));
+        if (atEnd || r.reset) box.scrollTop = box.scrollHeight;
+      }
+      out.file = r.file;
+      out.cursor = r.cursor;
+    } catch { /* the next poll tries again; load() shows the error */ }
+  }
+  busy = false;
 }
 async function run(path, body) {
   try { await api(path, body); } catch (error) { note(error.message); keepNote = Date.now() + 8000; return; }
@@ -114,8 +184,9 @@ async function run(path, body) {
 }
 
 tokenForm(load);
-load();
+load().then(poll);
 setInterval(load, 5000);
+setInterval(poll, 3000);
 </script>
 </body>
 </html>

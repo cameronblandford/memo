@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { MemoError } from './memos.js';
 import { createEvents } from './events.js';
+import { expandHome, readOutput } from './output.js';
 
 // The charters quote the stop message, so it starts with the name of the owner with a capital letter.
 const title = (owner) => owner[0].toUpperCase() + owner.slice(1);
@@ -41,6 +42,8 @@ export function loadConfig(path, owner = 'owner') {
     if (RESERVED.includes(a.name)) throw new Error(`agents.json: "${a.name}" is not permitted as an agent name.`);
     if (seen.has(a.name)) throw new Error(`agents.json: the name "${a.name}" is there two times.`);
     seen.add(a.name);
+    // Optional: the directory of the Claude Code transcripts of the agent, for its live output on the Agents page.
+    if (a.transcripts !== undefined && (typeof a.transcripts !== 'string' || !a.transcripts)) throw new Error(`agents.json: the transcripts of ${a.name} must be a directory path.`);
     if (!['long', 'short', 'remote'].includes(a.kind)) throw new Error(`agents.json: the kind of ${a.name} must be "long", "short", or "remote".`);
     // The session of a remote agent is on a different computer, and the agents.json of that computer gives its dir and model.
     if (a.kind === 'remote') continue;
@@ -120,7 +123,7 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
         name: a.name, kind: a.kind, running: a.kind === 'long' && running(a.name),
         ...(a.kind === 'remote' ? { online: last !== undefined && now().getTime() - last < ONLINE_MS, contact: last === undefined ? null : new Date(last).toISOString() } : {}),
         status: r.text, updated: r.updated, recap: r.recap, recap_at: r.recap_at,
-        stopping_since: r.stopping_since, last_stop: r.last_stop, ...counts(a.name),
+        stopping_since: r.stopping_since, last_stop: r.last_stop, output: !!a.transcripts, ...counts(a.name),
       };
     });
   }
@@ -236,6 +239,13 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     return text;
   }
 
+  // The new part of the live output of the agent. See output.js. An agent with no transcripts directory has none.
+  function output(name, { file, cursor } = {}) {
+    const a = known(name);
+    if (!a.transcripts) return { file: null, cursor: 0, reset: true, entries: [] };
+    return readOutput(expandHome(a.transcripts), { file, cursor });
+  }
+
   // The first agent with a session: a long agent if one exists, or a remote agent.
   const defaultAgent = () => (config.find((a) => a.kind === 'long') || config.find((a) => a.kind === 'remote')).name;
 
@@ -247,5 +257,5 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     }
   }
 
-  return { list, work, start, stop, recap, setStatus, prompt, defaultAgent, resume, contact, screen, setScreen, key };
+  return { list, work, start, stop, recap, setStatus, prompt, defaultAgent, resume, contact, output, screen, setScreen, key };
 }
