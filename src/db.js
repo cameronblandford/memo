@@ -110,5 +110,14 @@ export function openDb(path = ':memory:') {
   //   next:  the next step of the owner, for example "Mail form MV-232"
   if (!memoColumns.includes('title')) db.exec('ALTER TABLE memos ADD COLUMN title TEXT');
   if (!memoColumns.includes('next')) db.exec('ALTER TABLE memos ADD COLUMN next TEXT');
+  // answered: 1 when the sender answered a note of the owner (a note, an edit, or a compact). "read" only says that the
+  // sender got the note. An old note counts as answered if the sender wrote a note after it, or if the memo was compacted.
+  if (!db.prepare('PRAGMA table_info(notes)').all().some((c) => c.name === 'answered')) {
+    db.exec(`ALTER TABLE notes ADD COLUMN answered INTEGER NOT NULL DEFAULT 0;
+      UPDATE notes SET answered = 1 WHERE
+        EXISTS (SELECT 1 FROM memos m WHERE m.id = notes.memo_id AND notes.author != m.sender AND m.reply LIKE 'Compacted into%')
+        OR EXISTS (SELECT 1 FROM memos m JOIN notes r ON r.memo_id = m.id
+          WHERE m.id = notes.memo_id AND notes.author != m.sender AND r.author = m.sender AND r.id > notes.id);`);
+  }
   return db;
 }

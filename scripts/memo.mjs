@@ -21,6 +21,7 @@ const USAGE = `Usage:
   memo status --as <agent> <text>
   memo recap --as <agent> <text>
   memo list --to <name>
+  memo notes --as <agent>
   memo prompt --as <agent>
   memo ping --as <agent>
   memo screen --as <agent> < <screen text>
@@ -245,6 +246,19 @@ const commands = {
     const memos = await call(`/api/list?to=${query(need('to'))}`);
     if (!memos.length) console.log(`No open memos to ${flags.to}.`);
     if (memos.length) console.log(await showAll(memos));
+    const open = await call(`/api/notes?for=${query(flags.to)}`, undefined, { soft: true });
+    if (open?.length) console.log(`\n${open.length === 1 ? '1 note of the owner has' : `${open.length} notes of the owner have`} no answer. Run: memo notes --as ${flags.to}`);
+  },
+  // The notes of the owner that this agent did not answer, oldest first, also on closed memos.
+  async notes() {
+    const who = need('as');
+    const open = await call(`/api/notes?for=${query(who)}`);
+    if (!open.length) { console.log('No notes of the owner without an answer.'); return; }
+    for (const n of open) {
+      const name = n.title || n.memo_text.replace(/\s+/g, ' ').slice(0, 80);
+      console.log(`#${n.memo_id} (${n.state}) ${name}\n  Note, ${n.created}: ${n.text}\n`);
+    }
+    console.log(`Answer each note: memo note <id> --from ${who} "<text>". A short answer is enough, for example "Done: <what you did>."`);
   },
   // Stores an image file in Memo and prints the Markdown that shows it. Put the printed text into a memo.
   async image() {
@@ -312,13 +326,14 @@ const commands = {
       const news = await call(`/api/news?for=${query(who)}${hold.length ? `&hold=${hold.join(',')}` : ''}`, undefined, { soft: true });
       if (news) {
         const fresh = news.to_you.filter((c) => !hold.includes(c.id));
-        const noted = news.noted || [];
+        // A held memo also holds its notes. Without that, a note that the agent cannot answer now stops each wait.
+        const noted = (news.noted || []).filter((c) => !hold.includes(c.id));
         if (fresh.length || news.results.length || noted.length) {
           if (fresh.length) console.log(`New memos to ${who}:\n\n${await showAll(fresh)}`);
           if (noted.length) {
-            console.log(`Open memos from ${who} with a new note of the owner. Each memo stays open:\n\n${await showAll(noted, true)}`);
-            console.log(`Do what each note asks. Answer in the memo with: memo note <id> --from ${who} "<text>". To change the memo text, use memo edit.`);
-            console.log(`If no answer is necessary, run: memo ack ${noted.map((c) => c.id).join(' ')}\n`);
+            console.log(`Memos from ${who} with a new note of the owner:\n\n${await showAll(noted, true)}`);
+            console.log(`Do what each note asks, and answer each note in its memo: memo note <id> --from ${who} "<text>" (also for a closed memo). To change the text of an open memo, use memo edit.`);
+            console.log(`memo ack only marks a note as read. It is not an answer: the note stays in memo notes --as ${who}.\n`);
           }
           if (news.results.length) {
             console.log(`Results of memos from ${who}:\n\n${await showAll(news.results, true)}`);

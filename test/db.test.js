@@ -44,3 +44,17 @@ test('a database from before the new tag gets the column, and its memos count as
   assert.equal(store.get(2).seen, 0);
   createStore(openDb(path), { owner: 'cam', names: ['cam', 'discord', 'main'] });
 });
+
+test('an old database gets notes.answered: a note with a later answer of the sender, or of a compacted memo, counts as answered', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'memo-answered-')), 'memo.db');
+  const old = new DatabaseSync(path);
+  old.exec(`CREATE TABLE memos (id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL, recipient TEXT NOT NULL, text TEXT NOT NULL,
+      impact INTEGER, effort TEXT, due TEXT, state TEXT NOT NULL DEFAULT 'open', reply TEXT, created TEXT NOT NULL, closed TEXT, acked INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, memo_id INTEGER NOT NULL, author TEXT NOT NULL, text TEXT NOT NULL, created TEXT NOT NULL, read INTEGER NOT NULL DEFAULT 0);
+    INSERT INTO memos (sender, recipient, text, created) VALUES ('main', 'cam', 'a', 't'), ('main', 'cam', 'b', 't'), ('main', 'cam', 'c', 't');
+    UPDATE memos SET state = 'closed', reply = 'Compacted into memo #9.' WHERE id = 2;
+    INSERT INTO notes (memo_id, author, text, created, read) VALUES (1, 'cam', 'q', 't', 1), (1, 'main', 'a', 't', 0), (2, 'cam', 'shorter', 't', 1), (3, 'cam', 'open question', 't', 1);`);
+  old.close();
+  const db = openDb(path);
+  assert.deepEqual(db.prepare("SELECT id, answered FROM notes WHERE author = 'cam' ORDER BY id").all().map((r) => [r.id, r.answered]), [[1, 1], [3, 1], [4, 0]]);
+});

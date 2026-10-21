@@ -276,9 +276,23 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     only(c, false);
     return c.json(agents.key(b.name, b.key));
   });
+  // The notes of the owner that an agent did not answer. memo notes, memo list, and the start text show them.
+  app.get('/api/notes', (c) => {
+    const who = c.req.query('for');
+    only(c, who === LIAISON);
+    return c.json(store.unanswered(who));
+  });
   app.get('/api/agent/prompt', (c) => {
     only(c, false);
-    return c.text(agents.prompt(c.req.query('name')));
+    const name = c.req.query('name');
+    let text = agents.prompt(name);
+    const open = store.unanswered(name);
+    if (open.length) {
+      text += `\n\n## Notes of ${owner} with no answer\n\nAnswer each note before other work: \`memo note <id> --from ${name} "<text>"\`, also when the memo is closed.`
+        + ` \`memo notes --as ${name}\` shows this list again.\n\n`
+        + open.map((n) => `- Memo #${n.memo_id} (${n.state}), ${n.created}: ${n.text.replace(/\s+/g, ' ').slice(0, 300)}`).join('\n') + '\n';
+    }
+    return c.text(text);
   });
 
   return app;

@@ -160,12 +160,12 @@ test('counts gives the open memos to and from a name', () => {
   s.send(toCam);
   s.send({ from: 'cam', to: 'main', text: 'Work.' });
   s.reply(1, 'Yes.');
-  assert.deepEqual(s.counts('main'), { open_to: 1, open_from: 1, owner_open: 1, owner_since: s.get(3).created });
+  assert.deepEqual(s.counts('main'), { open_to: 1, open_from: 1, owner_open: 1, owner_since: s.get(3).created, unanswered: 0 });
 });
 
 test('counts gives the work of the owner that waits for an agent: open memos and unread notes', () => {
   const s = makeStore();
-  assert.deepEqual(s.counts('main'), { open_to: 0, open_from: 0, owner_open: 0, owner_since: null });
+  assert.deepEqual(s.counts('main'), { open_to: 0, open_from: 0, owner_open: 0, owner_since: null, unanswered: 0 });
   s.send(toCam); // 1: from main to cam
   s.send({ from: 'cam', to: 'main', text: 'Work.' }); // 2
   s.send({ from: 'cam', to: 'main', text: 'More work.' }); // 3
@@ -423,4 +423,42 @@ test('compact refuses a closed memo, a memo not to cam, a wrong sender, and no t
   refuses(() => s.compact(2, 'cam', { text: 'x' }), 400, 'Only a memo to cam');
   // A refused compact sends nothing.
   assert.deepEqual(s.list('cam'), []);
+});
+
+test('a note of the owner stays without an answer until the sender answers, edits, or compacts; ack only reads it', () => {
+  const { s, id } = withMemo();
+  assert.deepEqual(s.unanswered('main'), []);
+  s.note(id, 'cam', 'Add the price, please.');
+  assert.deepEqual(s.unanswered('main').map((n) => [n.memo_id, n.text, n.state]), [[id, 'Add the price, please.', 'open']]);
+  s.ack(id);
+  assert.deepEqual(s.news('main').noted, [], 'ack reads the note, so memo wait does not wake for it again');
+  assert.equal(s.unanswered('main').length, 1, 'ack is not an answer');
+  assert.equal(s.counts('main').unanswered, 1);
+  s.note(id, 'main', 'The price is $14.');
+  assert.deepEqual(s.unanswered('main'), []);
+  assert.equal(s.get(id).notes[0].answered, 1);
+
+  s.note(id, 'cam', 'Shorter, please.');
+  s.edit(id, 'Approve? $14.');
+  assert.deepEqual(s.unanswered('main'), []);
+  s.note(id, 'cam', 'Even shorter.');
+  s.compact(id, 'main', { text: 'Approve $14?' });
+  assert.deepEqual(s.unanswered('main'), []);
+});
+
+test('a note on a memo that closed later goes to the sender as news, and the sender can answer it', () => {
+  const { s, id } = withMemo();
+  s.note(id, 'cam', 'Confirmed.');
+  s.reply(id, 'Yes.');
+  assert.deepEqual(s.news('main').results.map((c) => [c.id, c.notes[0].text]), [[id, 'Confirmed.']]);
+  s.ack(id);
+  assert.deepEqual(s.news('main').noted.map((c) => c.id), [id], 'after the ack of the result, the note still comes as news');
+  s.ack(id);
+  assert.deepEqual(s.news('main').noted, []);
+  assert.equal(s.unanswered('main')[0].state, 'replied');
+  const m = s.note(id, 'main', 'Noted. I continue with the booking.');
+  assert.equal(m.state, 'replied');
+  assert.deepEqual(s.unanswered('main'), []);
+  refusesNote(() => s.note(id, 'cam', 'x'), 409, 'replied');
+  refusesNote(() => s.note(id, 'liaison', 'x'), 403, 'Only cam and main');
 });

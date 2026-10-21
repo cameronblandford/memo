@@ -58,6 +58,17 @@ async function key(agent, k) {
   setTimeout(load, 700);
 }
 
+// The warning and the keys stay out of the screen box, so they show also when the owner closed the screen.
+function keysView(agent, screen) {
+  if (!screen || screen.text === null) return [];
+  return [
+    ...(screen.dialog ? [el('p', { className: 'dialog' }, 'A dialog waits for an answer. Escape closes it.')] : []),
+    el('div', { className: 'row' },
+      button('Escape', () => key(agent, 'Escape'), 'Send Escape: close a dialog, or interrupt the turn'),
+      button('Enter', () => key(agent, 'Enter'), 'Send Enter: confirm the selected choice of a dialog')),
+  ];
+}
+
 function screenView(agent, screen) {
   const details = el('details', { className: 'screen', open: !closed.has(agent.name) });
   details.addEventListener('toggle', () => { if (details.open) closed.delete(agent.name); else closed.add(agent.name); remember(); });
@@ -67,11 +78,7 @@ function screenView(agent, screen) {
   }
   const summary = el('summary', {}, `Screen, ${age(screen.at)}; last change ${age(screen.changed)}`);
   const pre = el('pre', {}, screen.text);
-  details.append(summary);
-  if (screen.dialog) details.append(el('p', { className: 'dialog' }, 'A dialog waits for an answer. Escape closes it.'));
-  details.append(pre, el('div', { className: 'row' },
-    button('Escape', () => key(agent, 'Escape'), 'Send Escape: close a dialog, or interrupt the turn'),
-    button('Enter', () => key(agent, 'Enter'), 'Send Enter: confirm the selected choice of a dialog')));
+  details.append(summary, pre);
   // Show the end of the screen, as a terminal does.
   requestAnimationFrame(() => { pre.scrollTop = pre.scrollHeight; });
   return details;
@@ -86,7 +93,8 @@ function view(agent, screen) {
   if (agent.kind !== 'short' && agent.recap && !agent.running && !agent.online) {
     parts.push(el('details', { open: true }, el('summary', {}, `Recap, ${age(agent.recap_at)}`), el('div', { className: 'md' }, ...markdown(agent.recap, el))));
   }
-  if (agent.kind !== 'short' && (agent.running || agent.kind === 'remote')) parts.push(screenView(agent, screen));
+  if (agent.unanswered) parts.push(el('p', { className: 'dialog' }, `Notes of the owner with no answer: ${agent.unanswered}. The agent sees them with memo notes --as ${agent.name}.`));
+  if (agent.kind !== 'short' && (agent.running || agent.kind === 'remote')) parts.push(screenView(agent, screen), ...keysView(agent, screen));
   if (agent.kind === 'long') parts.push(el('div', { className: 'row' }, control(agent)));
   return el('article', { className: 'memo' }, ...parts);
 }

@@ -203,3 +203,16 @@ test('compact closes the memo and prints the new id', () => withServer(async ({ 
   assert.match((await memo(['compact', '2', 'x'])).stderr, /--from is necessary/);
   assert.match((await memo([])).stderr, /memo compact <id> --from <name>/);
 }));
+
+test('notes lists the notes with no answer, and wait holds a memo with a note', () => withServer(async ({ memo, store }) => {
+  const { id } = store.send({ from: 'main', to: 'cam', text: 'Approve?', impact: 3, effort: 'micro' }).memo;
+  assert.match((await memo(['notes', '--as', 'main'])).stdout, /No notes of the owner without an answer/);
+  store.note(id, 'cam', 'Add the price.');
+  const held = await memo(['wait', '--as', 'main', '--hold', String(id), '0.002']);
+  assert.equal(held.code, 2, 'a held memo with a note does not wake the wait');
+  const listed = await memo(['notes', '--as', 'main']);
+  assert.match(listed.stdout, new RegExp(`#${id}[\\s\\S]*Add the price\\.`));
+  assert.match(listed.stdout, /memo note/);
+  store.ack(id);
+  assert.match((await memo(['list', '--to', 'main'])).stdout, /1 note of the owner has no answer.*memo notes --as main/);
+}));

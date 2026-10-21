@@ -69,7 +69,7 @@ test('the queue gives the work sign data of each agent with a session', async ()
   const { app, store } = makeApp();
   const work = async () => (await call(app, '/api/queue')).data.agents;
   // The short agent liaison has no session, so it gets no sign.
-  assert.deepEqual(await work(), [{ name: 'main', status: '', updated: '', open_to: 0, open_from: 0, owner_open: 0, owner_since: null }]);
+  assert.deepEqual(await work(), [{ name: 'main', status: '', updated: '', open_to: 0, open_from: 0, owner_open: 0, owner_since: null, unanswered: 0 }]);
   await call(app, '/api/send', { from: 'cam', to: 'main', text: 'Work.' });
   const [queued] = await work();
   assert.equal(queued.owner_open, 1);
@@ -283,4 +283,17 @@ test('the compact route closes the memo and sends the new one, and the liaison t
   assert.equal(r.data.old.reply, 'Compacted into memo #2.');
   assert.deepEqual((await call(app, '/api/queue')).data.memos.map((m) => m.id), [2]);
   assert.equal((await call(app, '/api/compact', { id: 1, from: 'main', text: 'Again.' })).status, 409);
+});
+
+test('the notes route lists the notes of the owner with no answer, and the prompt adds them', async () => {
+  const { app } = makeApp();
+  const id = (await call(app, '/api/send', { from: 'main', to: 'cam', text: 'Approve?', impact: 3, effort: 'short' })).data.memo.id;
+  await call(app, '/api/note', { id, from: 'cam', text: 'Add the price.' });
+  await call(app, '/api/ack', { id });
+  const r = await call(app, '/api/notes?for=main');
+  assert.deepEqual(r.data.map((n) => [n.memo_id, n.text]), [[id, 'Add the price.']]);
+  assert.equal((await call(app, '/api/notes?for=main', undefined, LIAISON_TOKEN)).status, 403);
+  const prompt = await app.request('/api/agent/prompt?name=main', { headers: { Authorization: `Bearer ${TOKEN}` } });
+  assert.match(await prompt.text(), /Notes of cam with no answer[\s\S]*Add the price\./);
+  assert.equal((await call(app, '/api/agents')).data.find((a) => a.name === 'main').unanswered, 1);
 });
