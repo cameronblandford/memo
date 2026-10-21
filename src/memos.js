@@ -1,6 +1,7 @@
 import { EFFORTS, sortQueue } from './rank.js';
 import { setCheckBox, summary } from '../ui/markdown.js';
 import { createEvents } from './events.js';
+import { COMPACT_NOTE } from '../ui/filter.js';
 
 export class MemoError extends Error {
   constructor(status, message) {
@@ -176,9 +177,9 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     const c = getOpen(id);
     // A text that the owner saw and that changes shows as "updated" in the Inbox.
     db.prepare('UPDATE memos SET text = ?, seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?').run(checkText('text', text), c.id);
-    // The sender changes the text to do what a note of the owner asks. Thus the notes of the owner are read,
-    // and memo wait does not give the same note again.
-    db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ?').run(c.id, owner);
+    // The sender changes the text to do what a note of the owner asks. Thus the notes of the owner that the sender
+    // got are read, and memo wait does not give the same note again. A note that came later stays unread.
+    markOwnerNotesRead(c.id, c.sender);
     log(c.sender, c.id, 'edit', text);
     return get(c.id);
   }
@@ -197,7 +198,8 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
 
   // A note is a message in an open memo to the owner. The memo stays open and keeps its place in the queue.
   // The owner writes a note to ask for a change or for more data. The sender of the memo answers with a note.
-  // A new note marks the notes of the other party as read.
+  // A new note marks the notes of the other party as read: for the owner (the Inbox shows all notes) all of them;
+  // for the sender only the notes of the owner that memo wait or memo list gave to the sender.
   function note(id, from, text) {
     const c = getOpen(id);
     if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} can have notes.`);
@@ -205,7 +207,8 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     const body = checkText('text', text);
     if (body.length > MAX_NOTE) throw new MemoError(400, `A note must have ${MAX_NOTE} characters or fewer.`);
     db.prepare('INSERT INTO notes (memo_id, author, text, created) VALUES (?, ?, ?, ?)').run(c.id, from, body, ts());
-    db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author != ?').run(c.id, from);
+    if (from === owner) db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author != ?').run(c.id, from);
+    else markOwnerNotesRead(c.id, from);
     // A note of the sender shows as "updated" in the Inbox, as a changed text does.
     if (from !== owner) db.prepare('UPDATE memos SET seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?').run(c.id);
     log(from, c.id, 'note', body);
@@ -214,20 +217,48 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
   // The sender makes a short new memo from an open memo to the owner, when the owner asks for it (the Compact button).
   // The new memo has the new text and the impact, effort, due date, and tags of the old one. It shows as new.
   // The old memo closes with a link to the new one. It is acked, so the sender gets no result for it.
+  // A note of the owner that the sender did not read (other than the Shorten request) would be lost in the closed
+  // memo, so compact is refused until the sender reads it (memo wait), answers it, or acks it.
   function compact(id, from, { text, title, next } = {}) {
     const c = getOpen(id);
     if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} can be compacted.`);
     if (from === owner || from !== c.sender) throw new MemoError(403, `Only ${c.sender} can compact memo ${c.id}.`);
+    const unread = (c.notes || []).filter((n) => n.author === owner && !n.read && n.text !== COMPACT_NOTE);
+    if (unread.length) {
+      throw new MemoError(409, `Memo ${c.id} has ${unread.length} note(s) of ${owner} that are not read. Compact would lose them. `
+        + `Run memo wait to get them, answer them (memo note or memo edit) or run memo ack ${c.id}, then compact again.`);
+    }
     const { memo } = send({
       from, to: owner, text, impact: c.impact, effort: c.effort, due: c.due, tags: c.tags,
       title: title === undefined ? c.title : title, next: next === undefined ? c.next : next,
     });
     db.prepare(`UPDATE memos SET reply = ?, state = 'closed', closed = ?, acked = 1 WHERE id = ?`).run(`Compacted into memo #${memo.id}.`, ts(), c.id);
+    // Only the Shorten request can be unread here. The compact answers it.
     db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ?').run(c.id, owner);
     log(from, c.id, 'compact', `into #${memo.id}`);
     return { memo, old: get(c.id) };
   }
   const unreadFromOwner = (id) => db.prepare('SELECT COUNT(*) AS n FROM notes WHERE memo_id = ? AND author = ? AND read = 0').get(id, owner).n;
+
+  // The id of the newest note of the owner on the memo that memo wait or memo list gave to the reader, or 0.
+  // The event log tells it, with no new column: each note of the owner has a "note" event, and each delivery
+  // a "delivered" event, in order. The notes before the delivery are the notes that the reader got.
+  // A note from before the event log has no event; it is older than every event of the log.
+  function deliveredNoteCut(memoId, reader) {
+    const d = db.prepare(`SELECT MAX(id) AS id FROM events WHERE memo_id = ? AND kind = 'delivered' AND actor = ?`).get(memoId, reader).id;
+    if (d == null) return 0;
+    const ids = db.prepare('SELECT id FROM notes WHERE memo_id = ? AND author = ? ORDER BY id').all(memoId, owner).map((r) => r.id);
+    const logged = db.prepare(`SELECT COUNT(*) AS n FROM events WHERE memo_id = ? AND kind = 'note' AND actor = ?`).get(memoId, owner).n;
+    const before = db.prepare(`SELECT COUNT(*) AS n FROM events WHERE memo_id = ? AND kind = 'note' AND actor = ? AND id < ?`).get(memoId, owner, d).n;
+    const got = Math.max(0, ids.length - logged) + before;
+    return got ? ids[Math.min(got, ids.length) - 1] : 0;
+  }
+  // The reader acts on the memo (a note, an edit, an ack): the notes of the owner that the reader got are read.
+  // A note that the reader never got stays unread, so memo wait gives it.
+  function markOwnerNotesRead(memoId, reader) {
+    const cut = deliveredNoteCut(memoId, reader);
+    return Number(db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ? AND read = 0 AND id <= ?').run(memoId, owner, cut).changes);
+  }
 
   // The owner changes one check box of a memo ("- [ ] text"). The text changes only in that box, and the memo stays seen.
   function check(id, n, on) {
@@ -272,7 +303,8 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     const c = get(id);
     // For an open memo, the sender marks the notes of the owner as read, when no answer is necessary.
     if (c.state === 'open' && unreadFromOwner(c.id)) {
-      db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ?').run(c.id, owner);
+      const n = markOwnerNotesRead(c.id, c.sender);
+      if (!n) throw new MemoError(409, `Memo ${c.id} has notes of ${owner} that you did not get yet. Run memo wait to get them.`);
       log(c.sender, c.id, 'ack', 'notes read');
       return get(c.id);
     }
@@ -356,7 +388,8 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
 
   // hold: the ids that memo wait does not show (memo wait --hold). Each answer records a delivery for the memos
   // that the wait shows, and the time of the request and the held ids for the Log page.
-  function news(who, { hold = [] } = {}) {
+  // peek: a check that is not a read by the agent (the Discord watcher). It records no delivery and no poll.
+  function news(who, { hold = [], peek = false } = {}) {
     const to_you = list(who);
     const results = db.prepare(`SELECT * FROM memos WHERE sender = ? AND state != 'open' AND acked = 0 ORDER BY id`)
       .all(who).map(withNotes);
@@ -365,6 +398,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
       `SELECT * FROM memos WHERE sender = ? AND state = 'open'
        AND id IN (SELECT memo_id FROM notes WHERE author = ? AND read = 0) ORDER BY id`,
     ).all(who, owner).map(withNotes);
+    if (peek) return { to_you, results, noted };
     polls.set(who, { at: ts(), hold: to_you.filter((c) => hold.includes(c.id)).map((c) => c.id) });
     delivered(who, [...to_you.filter((c) => !hold.includes(c.id)), ...results, ...noted], 'by memo wait');
     return { to_you, results, noted };

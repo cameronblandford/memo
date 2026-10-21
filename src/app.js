@@ -199,10 +199,12 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
   app.get('/api/news', (c) => {
     const who = c.req.query('for');
     only(c, who === LIAISON);
-    agents.contact(who);
+    // peek=1: a check that is not a read by the agent, for example by the Discord watcher.
+    const peek = !!c.req.query('peek');
+    if (!peek) agents.contact(who);
     // hold: the ids of memo wait --hold, for the Log page.
     const hold = (c.req.query('hold') || '').split(',').map(Number).filter(Number.isInteger);
-    return c.json(store.news(who, { hold }));
+    return c.json(store.news(who, { hold, peek }));
   });
   // The Log page: the memos on their way to each agent, and the newest events (filter: agent, memo).
   app.get('/api/log', (c) => {

@@ -61,6 +61,7 @@ test('in flight shows the answers that the agent did not ack and the notes that 
   s.note(2, 'cam', 'More data, please.');
   const main = s.inflight().find((a) => a.name === 'main');
   assert.deepEqual(main.memos.map((m) => [m.id, m.stage, m.delivered]), [[1, 'result', null], [2, 'note', null]]);
+  s.news('main'); // main gets the answer and the note
   s.ack(1);
   s.ack(2);
   assert.deepEqual(s.inflight().find((a) => a.name === 'main').memos, []);
