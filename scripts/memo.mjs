@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { imageNames } from '../ui/attach.js';
+import { summary } from '../ui/markdown.js';
 
 const USAGE = `Usage:
   memo send --from <name> --to <name> [--impact 1-5 --effort micro|short|hour|half-day|day] [--due YYYY-MM-DD] [--tag <tag> ...] [--title <name>] [--next <step>] [--] <text>
@@ -128,17 +129,18 @@ async function localImage(name) {
   }
   return null;
 }
-// own: the reader sent these memos.
+// own: the reader sent this memo.
+async function shown(c, own = false) {
+  const lines = [];
+  for (const name of broughtImages(c, own)) {
+    const path = await localImage(name);
+    lines.push(path ? `Image ${name} is the file ${path}. Open the file to see the image.` : `Image ${name}: memo could not get the file. Run the command again.`);
+  }
+  return (own ? showOwn(c) : show(c)) + (lines.length ? `${lines.join('\n')}\n` : '');
+}
 async function showAll(memos, own = false) {
   const out = [];
-  for (const c of memos) {
-    const lines = [];
-    for (const name of broughtImages(c, own)) {
-      const path = await localImage(name);
-      lines.push(path ? `Image ${name} is the file ${path}. Open the file to see the image.` : `Image ${name}: memo could not get the file. Run the command again.`);
-    }
-    out.push(show(c) + (lines.length ? `${lines.join('\n')}\n` : ''));
-  }
+  for (const c of memos) out.push(await shown(c, own));
   return out.join('\n');
 }
 
@@ -149,9 +151,20 @@ function show(c) {
     + (c.tags?.length ? `, tags ${c.tags.join(' ')}` : '')
     + (c.until ? `, postponed until ${when(c.until)}` : '')
     + (c.state !== 'open' ? `, ${c.state}` : '');
-  const notes = (c.notes || []).map((n) => `Note from ${n.author}, ${when(n.created)}${n.read ? '' : ' (not read)'}: ${n.text}\n`).join('');
-  return `${head}\n${c.text}\n${notes}${c.reply ? `Reply: ${c.reply}\n` : ''}`;
+  return `${head}\n${c.text}\n${notesOf(c)}${c.reply ? `Reply: ${c.reply}\n` : ''}`;
 }
+
+const headOf = (c) => `#${c.id} from ${c.sender} to ${c.recipient}, ${when(c.created)}` + (c.state !== 'open' ? `, ${c.state}` : '');
+const notesOf = (c) => (c.notes || []).map((n) => `Note from ${n.author}, ${when(n.created)}${n.read ? '' : ' (not read)'}: ${n.text}\n`).join('');
+// A memo that the reader sent: the reply and the notes first, then only the name of the memo. The reader knows
+// its own text, and a long output can lose its middle part.
+function showOwn(c) {
+  return `${headOf(c)}\n${c.reply ? `Reply: ${c.reply}\n` : ''}${notesOf(c)}Your memo: ${c.title || summary(c.text, 100) || '(no text)'}\n`;
+}
+
+// The most characters that memo wait prints. A tool can cut a longer output in the middle, and the agent
+// must not ack an answer that it did not see. A memo that does not fit comes in the next memo wait.
+const WAIT_MAX = Number(process.env.MEMO_WAIT_MAX_CHARS || 20000);
 
 async function setTags(on) {
   const id = memoId(rest[0]);
@@ -298,15 +311,38 @@ const commands = {
         const fresh = news.to_you.filter((c) => !hold.includes(c.id));
         const noted = news.noted || [];
         if (fresh.length || news.results.length || noted.length) {
-          if (fresh.length) console.log(`New memos to ${who}:\n\n${await showAll(fresh)}`);
-          if (noted.length) {
-            console.log(`Open memos from ${who} with a new note of the owner. Each memo stays open:\n\n${await showAll(noted, true)}`);
-            console.log(`Do what each note asks. Answer in the memo with: memo note <id> --from ${who} "<text>". To change the memo text, use memo edit.`);
-            console.log(`If no answer is necessary, run: memo ack ${noted.map((c) => c.id).join(' ')}\n`);
+          // The answers first: they leave the list when the agent acks them. The new memos last: they stay
+          // until the agent answers them, and --hold takes them out of the next memo wait.
+          const items = [
+            ...news.results.map((c) => ({ kind: 'result', c, own: true })),
+            ...noted.map((c) => ({ kind: 'noted', c, own: true })),
+            ...fresh.map((c) => ({ kind: 'fresh', c, own: false })),
+          ];
+          let size = 0;
+          const done = [];
+          for (const item of items) {
+            const text = await shown(item.c, item.own);
+            // The first memo is always printed in full, so a memo that is longer than the limit cannot block the wait.
+            if (done.length && size + text.length > WAIT_MAX) break;
+            size += text.length;
+            done.push({ ...item, text });
           }
-          if (news.results.length) {
-            console.log(`Results of memos from ${who}:\n\n${await showAll(news.results, true)}`);
-            console.log(`After you read the results, run: memo ack ${news.results.map((c) => c.id).join(' ')}`);
+          const of = (kind) => done.filter((d) => d.kind === kind);
+          const ids = (list) => list.map((d) => d.c.id).join(' ');
+          if (of('result').length) {
+            console.log(`Results of memos from ${who}:\n\n${of('result').map((d) => d.text).join('\n')}`);
+            console.log(`After you read the results, run: memo ack ${ids(of('result'))}\n`);
+          }
+          if (of('noted').length) {
+            console.log(`Open memos from ${who} with a new note of the owner. Each memo stays open:\n\n${of('noted').map((d) => d.text).join('\n')}`);
+            console.log(`Do what each note asks. Answer in the memo with: memo note <id> --from ${who} "<text>". To change the memo text, use memo edit.`);
+            console.log(`If no answer is necessary, run: memo ack ${ids(of('noted'))}\n`);
+          }
+          if (of('fresh').length) console.log(`New memos to ${who}:\n\n${of('fresh').map((d) => d.text).join('\n')}`);
+          const left = items.length - done.length;
+          if (left) {
+            const held = [...hold, ...of('fresh').map((d) => d.c.id)];
+            console.log(`${left} more: the output has a limit of ${WAIT_MAX} characters. Run memo wait again${held.length ? ` with --hold ${held.join(',')}` : ''} after you handle these.`);
           }
           return;
         }

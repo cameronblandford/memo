@@ -120,6 +120,47 @@ test('wait exits with code 0 and prints the news when news exists', () => withSe
   assert.match(r.stdout, /memo ack 2/);
 }));
 
+test('wait prints the reply first and only the name of the own memo, not its full text', () => withServer(async ({ memo, store }) => {
+  const long = `Approve the plan?\n\n${'detail '.repeat(1000)}THE-END-OF-MY-TEXT`;
+  store.send({ from: 'main', to: 'cam', text: long, impact: 3, effort: 'micro' });
+  store.reply(1, 'Yes, go.');
+  const r = await memo(['wait', '--as', 'main', '1']);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /#1 from main to cam, .*, replied\nReply: Yes, go\.\nYour memo: Approve the plan\?\n/);
+  assert.doesNotMatch(r.stdout, /THE-END-OF-MY-TEXT/);
+  assert.match(r.stdout, /memo ack 1\n/);
+}));
+
+test('wait keeps its output under the limit and acks only the memos that it printed', () => withServer(async ({ memo, store }) => {
+  for (let i = 1; i <= 3; i++) {
+    store.send({ from: 'main', to: 'cam', text: `Question ${i}?`, impact: 3, effort: 'micro' });
+    store.reply(i, `Answer ${i}: ${'x'.repeat(3000)}`);
+  }
+  store.send({ from: 'cam', to: 'main', text: `New work. ${'y'.repeat(3000)}` }); // 4
+  const r = await memo(['wait', '--as', 'main', '1'], { MEMO_WAIT_MAX_CHARS: '7000' });
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /Answer 1:/);
+  assert.match(r.stdout, /Answer 2:/);
+  assert.doesNotMatch(r.stdout, /Answer 3:/);
+  assert.doesNotMatch(r.stdout, /New work\./);
+  assert.match(r.stdout, /run: memo ack 1 2\n/);
+  assert.match(r.stdout, /2 more: .*Run memo wait again after you handle these\./);
+  // One memo that is longer than the limit is printed in full, so the wait does not stop on it.
+  await memo(['ack', '1', '2', '3']);
+  const big = await memo(['wait', '--as', 'main', '1'], { MEMO_WAIT_MAX_CHARS: '100' });
+  assert.match(big.stdout, /New work\. y{3000}/);
+  assert.doesNotMatch(big.stdout, /more:/);
+}));
+
+test('wait shows new memos after the answers, and the next wait holds the shown memos', () => withServer(async ({ memo, store }) => {
+  store.send({ from: 'cam', to: 'main', text: `First task. ${'a'.repeat(3000)}` });
+  store.send({ from: 'cam', to: 'main', text: `Second task. ${'b'.repeat(3000)}` });
+  const r = await memo(['wait', '--as', 'main', '1'], { MEMO_WAIT_MAX_CHARS: '4000' });
+  assert.match(r.stdout, /First task/);
+  assert.doesNotMatch(r.stdout, /Second task/);
+  assert.match(r.stdout, /1 more: .*Run memo wait again with --hold 1 after you handle these\./);
+}));
+
 test('wait ignores the memos in --hold and exits with code 2 at the time limit', () => withServer(async ({ memo, store }) => {
   store.send({ from: 'cam', to: 'main', text: 'A memo that waits for an answer.' });
   const r = await memo(['wait', '--as', 'main', '--hold', '1', '0.003']);
