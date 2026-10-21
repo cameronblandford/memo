@@ -79,6 +79,8 @@ async function load() {
   try {
     const agents = await api('/api/agents');
     const articles = agents.map(card);
+    // An agent that the server does not give any more loses its card, so poll() does not ask for it.
+    for (const name of cards.keys()) if (!agents.some((x) => x.name === name)) cards.delete(name);
     // Put the cards in the list only when the list changes. To move a card resets the scroll of its box.
     if (articles.length !== list.children.length || articles.some((a, i) => list.children[i] !== a)) list.replaceChildren(...articles);
     loadImages(list);
@@ -100,10 +102,11 @@ let busy = false;
 async function poll() {
   if (busy) return;
   busy = true;
-  try {
-    for (const [name, c] of cards) {
-      const out = c.output;
-      if (!out) continue;
+  for (const [name, c] of cards) {
+    const out = c.output;
+    if (!out) continue;
+    // Each agent has its own try: an error for one agent does not stop the output of the others.
+    try {
       const q = new URLSearchParams({ name });
       if (out.file) { q.set('file', out.file); q.set('cursor', out.cursor); }
       const r = await api(`/api/agent/output?${q}`);
@@ -120,8 +123,8 @@ async function poll() {
       }
       out.file = r.file;
       out.cursor = r.cursor;
-    }
-  } catch { /* the next poll tries again; load() shows the error */ }
+    } catch { /* the next poll tries again; load() shows the error */ }
+  }
   busy = false;
 }
 async function run(path, body) {
