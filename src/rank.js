@@ -31,3 +31,11 @@ export function sortQueue(memos, now = new Date()) {
     return bi * aw - ai * bw || a.id - b.id;
   });
 }
+
+// The time of the last change of a memo, for the "Recently updated" order of the Inbox: the newest of the send time,
+// the return from a postpone (back), the newest note (from anyone), and the last text edit (editAt, from the event log;
+// null when the log has no edit). All times are ISO strings in UTC, so the text order is the time order.
+export function updatedTime(memo, editAt = null) {
+  const times = [memo.created, memo.back, ...(memo.notes || []).map((n) => n.created), editAt].filter(Boolean);
+  return times.sort().at(-1) ?? null;
+}
