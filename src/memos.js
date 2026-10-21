@@ -1,5 +1,6 @@
 import { EFFORTS, sortQueue } from './rank.js';
-import { setCheckBox } from '../ui/markdown.js';
+import { setCheckBox, summary } from '../ui/markdown.js';
+import { createEvents } from './events.js';
 
 export class MemoError extends Error {
   constructor(status, message) {
@@ -43,6 +44,10 @@ export function returnTime(date, timeZone) {
 export function createStore(db, { names, owner = 'owner', forwardTo = names.filter((n) => n !== owner && n !== 'discord'), now = () => new Date(), timeZone = 'America/New_York' }) {
   const ts = () => now().toISOString();
   const plain = (row) => (row ? { ...row } : row);
+  const events = createEvents(db, now);
+  const log = events.add;
+  // The last request of each agent for news (memo wait): the time, and the ids that the wait holds. Only in memory.
+  const polls = new Map();
 
   function checkText(field, v, required = true) {
     if (v === undefined || v === null || v === '') {
@@ -145,13 +150,16 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
       // seen is 0 here and not from the column default: an older database has the default 1 for its old memos.
       'INSERT INTO memos (sender, recipient, text, impact, effort, due, trusted, created, seen, tags, title, next) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)',
     ).run(from, to, body, impact, effort, d, trusted ? 1 : 0, ts(), t.join(','), name, step);
-    return { memo: get(Number(r.lastInsertRowid)), corrections: to === owner ? corrections(from) : [] };
+    const id = Number(r.lastInsertRowid);
+    log(from, id, 'send', `to ${to}: ${name || body}`);
+    return { memo: get(id), corrections: to === owner ? corrections(from) : [] };
   }
 
   function reply(id, text) {
     const c = getOpen(id);
     const body = checkText('text', text);
     db.prepare(`UPDATE memos SET reply = ?, state = 'replied', closed = ? WHERE id = ?`).run(body, ts(), c.id);
+    log(c.recipient, c.id, 'reply', body);
     return get(c.id);
   }
 
@@ -159,6 +167,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     const c = getOpen(id);
     const body = checkText('text', text, false);
     db.prepare(`UPDATE memos SET reply = ?, state = 'closed', closed = ? WHERE id = ?`).run(body, ts(), c.id);
+    log(c.recipient, c.id, 'close', body || '');
     return get(c.id);
   }
 
@@ -170,6 +179,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     // The sender changes the text to do what a note of the owner asks. Thus the notes of the owner are read,
     // and memo wait does not give the same note again.
     db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ?').run(c.id, owner);
+    log(c.sender, c.id, 'edit', text);
     return get(c.id);
   }
 
@@ -181,6 +191,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     const name = title === undefined ? c.title : checkLine('title', title, MAX_TITLE);
     const step = next === undefined ? c.next : checkLine('next', next, MAX_NEXT);
     db.prepare('UPDATE memos SET title = ?, next = ? WHERE id = ?').run(name, step, c.id);
+    log(c.sender, c.id, 'brief', [name, step].filter(Boolean).join(' · next: '));
     return get(c.id);
   }
 
@@ -197,6 +208,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author != ?').run(c.id, from);
     // A note of the sender shows as "updated" in the Inbox, as a changed text does.
     if (from !== owner) db.prepare('UPDATE memos SET seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?').run(c.id);
+    log(from, c.id, 'note', body);
     return get(c.id);
   }
   // The sender makes a short new memo from an open memo to the owner, when the owner asks for it (the Compact button).
@@ -212,6 +224,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     });
     db.prepare(`UPDATE memos SET reply = ?, state = 'closed', closed = ?, acked = 1 WHERE id = ?`).run(`Compacted into memo #${memo.id}.`, ts(), c.id);
     db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ?').run(c.id, owner);
+    log(from, c.id, 'compact', `into #${memo.id}`);
     return { memo, old: get(c.id) };
   }
   const unreadFromOwner = (id) => db.prepare('SELECT COUNT(*) AS n FROM notes WHERE memo_id = ? AND author = ? AND read = 0').get(id, owner).n;
@@ -234,7 +247,11 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     }
     const mark = db.prepare('UPDATE memos SET seen = 1 WHERE id = ? AND recipient = ? AND seen != 1');
     let changed = 0;
-    for (const id of ids) changed += Number(mark.run(id, owner).changes);
+    for (const id of ids) {
+      const n = Number(mark.run(id, owner).changes);
+      if (n) log(owner, id, 'seen', 'in the Inbox');
+      changed += n;
+    }
     return { seen: changed };
   }
 
@@ -256,10 +273,12 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     // For an open memo, the sender marks the notes of the owner as read, when no answer is necessary.
     if (c.state === 'open' && unreadFromOwner(c.id)) {
       db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ?').run(c.id, owner);
+      log(c.sender, c.id, 'ack', 'notes read');
       return get(c.id);
     }
     if (c.state === 'open') throw new MemoError(409, `Memo ${c.id} is open. It has no result.`);
     db.prepare('UPDATE memos SET acked = 1 WHERE id = ?').run(c.id);
+    log(c.sender, c.id, 'ack', 'result read');
     return get(c.id);
   }
 
@@ -275,6 +294,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     checkParty('to', to, forwardTo);
     const sent = send({ from: owner, to, text: c.text });
     db.prepare('UPDATE memos SET trusted = 2 WHERE id = ?').run(c.id);
+    log(c.recipient, c.id, 'forward', `to ${to} as #${sent.memo.id}`);
     return sent;
   }
 
@@ -297,6 +317,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} can be postponed.`);
     if (date === null) {
       db.prepare('UPDATE memos SET until = NULL WHERE id = ?').run(c.id);
+      log(owner, c.id, 'postpone', 'back now');
       return get(c.id);
     }
     const day = checkDue(date);
@@ -304,12 +325,18 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     const until = returnTime(day, timeZone);
     if (until <= ts()) throw new MemoError(400, `The date must be in the future: 9:00 on ${day} has passed.`);
     db.prepare('UPDATE memos SET until = ? WHERE id = ?').run(until, c.id);
+    log(owner, c.id, 'postpone', `until ${until}`);
     return get(c.id);
   }
 
   // A postponed memo whose time has come goes back to the Inbox as new, at the top until the owner sees it.
   // SET uses the old value of until for back.
-  const wake = () => db.prepare('UPDATE memos SET back = until, until = NULL, seen = 0 WHERE until IS NOT NULL AND until <= ?').run(ts());
+  function wake() {
+    const due = db.prepare('SELECT id FROM memos WHERE until IS NOT NULL AND until <= ?').all(ts());
+    if (!due.length) return;
+    db.prepare('UPDATE memos SET back = until, until = NULL, seen = 0 WHERE until IS NOT NULL AND until <= ?').run(ts());
+    for (const { id } of due) log(owner, id, 'back', 'the postpone ended');
+  }
 
   // The open memos to a name. For the owner, a postponed memo is not in the list, unless withPostponed.
   function list(to, { withPostponed = false } = {}) {
@@ -327,7 +354,9 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
       .all(owner).map(withNotes);
   }
 
-  function news(who) {
+  // hold: the ids that memo wait does not show (memo wait --hold). Each answer records a delivery for the memos
+  // that the wait shows, and the time of the request and the held ids for the Log page.
+  function news(who, { hold = [] } = {}) {
     const to_you = list(who);
     const results = db.prepare(`SELECT * FROM memos WHERE sender = ? AND state != 'open' AND acked = 0 ORDER BY id`)
       .all(who).map(withNotes);
@@ -336,7 +365,44 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
       `SELECT * FROM memos WHERE sender = ? AND state = 'open'
        AND id IN (SELECT memo_id FROM notes WHERE author = ? AND read = 0) ORDER BY id`,
     ).all(who, owner).map(withNotes);
+    polls.set(who, { at: ts(), hold: to_you.filter((c) => hold.includes(c.id)).map((c) => c.id) });
+    delivered(who, [...to_you.filter((c) => !hold.includes(c.id)), ...results, ...noted], 'by memo wait');
     return { to_you, results, noted };
+  }
+
+  // The reader got these memos. Not for the owner: the Inbox records "seen" for the owner.
+  function delivered(who, memos, how) {
+    if (who === owner) return;
+    for (const c of memos) events.delivered(who, c.id, how);
+  }
+
+  // For the Log page: for each agent, the memos that are on their way. stage:
+  //   open:   an open memo to the agent;
+  //   result: a memo from the agent with an answer that the agent did not ack;
+  //   note:   an open memo from the agent with a note of the owner that the agent did not read.
+  // delivered: the time when memo wait or memo list gave the memo to the agent after its last change, or null.
+  // known: false for a memo from before the event log. held: memo wait holds the memo (--hold).
+  function inflight() {
+    const agents = names.filter((n) => n !== owner && n !== 'discord');
+    const line = (c) => c.title || summary(c.text, 80);
+    return agents.map((name) => {
+      const poll = polls.get(name) || null;
+      const item = (c, stage, since) => ({
+        id: c.id, stage, sender: c.sender, recipient: c.recipient, state: c.state, line: line(c), since,
+        ...events.deliveryOf(c.id, name), held: stage === 'open' && !!poll?.hold.includes(c.id),
+      });
+      const open = db.prepare(`SELECT * FROM memos WHERE recipient = ? AND state = 'open' ORDER BY id`).all(name);
+      const results = db.prepare(`SELECT * FROM memos WHERE sender = ? AND state != 'open' AND acked = 0 ORDER BY id`).all(name);
+      const noted = db.prepare(
+        `SELECT m.*, MIN(t.created) AS note_at FROM memos m JOIN notes t ON t.memo_id = m.id
+         WHERE m.sender = ? AND m.state = 'open' AND t.author = ? AND t.read = 0 GROUP BY m.id ORDER BY m.id`,
+      ).all(name, owner);
+      return {
+        name, poll,
+        memos: [...open.map((c) => item(c, 'open', c.created)), ...results.map((c) => item(c, 'result', c.closed)),
+          ...noted.map((c) => item(c, 'note', c.note_at))],
+      };
+    });
   }
 
   // owner_open: the work of the owner that waits for this agent. That is each open memo from the owner to the agent,
@@ -358,5 +424,5 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     };
   }
 
-  return { get, send, reply, close, edit, brief, note, compact, seen, check, adjust, ack, forward, tag, postpone, postponed, list, news, corrections, counts, timeZone };
+  return { get, send, reply, close, edit, brief, note, compact, seen, check, adjust, ack, forward, tag, postpone, postponed, list, news, delivered, inflight, events, corrections, counts, timeZone };
 }

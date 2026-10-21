@@ -125,6 +125,10 @@ test('wait ignores the memos in --hold and exits with code 2 at the time limit',
   const r = await memo(['wait', '--as', 'main', '--hold', '1', '0.003']);
   assert.equal(r.code, 2);
   assert.match(r.stdout, /No news for main/);
+  // The server knows the held ids, for the Log page, and records no delivery for them.
+  const main = store.inflight().find((a) => a.name === 'main');
+  assert.deepEqual(main.poll.hold, [1]);
+  assert.deepEqual(store.events.list({ memo: 1 }).map((e) => e.kind), ['send']);
 }));
 
 test('wait exits when a new memo arrives while it waits', () => withServer(async ({ memo, store }) => {
