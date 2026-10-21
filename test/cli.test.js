@@ -210,6 +210,11 @@ test('notes lists the notes with no answer, and wait holds a memo with a note', 
   store.note(id, 'cam', 'Add the price.');
   const held = await memo(['wait', '--as', 'main', '--hold', String(id), '0.002']);
   assert.equal(held.code, 2, 'a held memo with a note does not wake the wait');
+  const log = store.inflight().find((a) => a.name === 'main');
+  assert.deepEqual(log.poll.hold, [id], 'the Log page knows that the wait holds the memo with the note');
+  const item = log.memos.find((c) => c.id === id && c.stage === 'note');
+  assert.equal(item.held, true);
+  assert.equal(item.delivered ?? null, null, 'a held note is not delivered');
   const listed = await memo(['notes', '--as', 'main']);
   assert.match(listed.stdout, new RegExp(`#${id}[\\s\\S]*Add the price\\.`));
   assert.match(listed.stdout, /memo note/);

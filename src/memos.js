@@ -371,8 +371,10 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
       `SELECT * FROM memos WHERE sender = ? AND (state = 'open' OR acked = 1)
        AND id IN (SELECT memo_id FROM notes WHERE author = ? AND read = 0) ORDER BY id`,
     ).all(who, owner).map(withNotes);
-    polls.set(who, { at: ts(), hold: to_you.filter((c) => hold.includes(c.id)).map((c) => c.id) });
-    delivered(who, [...to_you.filter((c) => !hold.includes(c.id)), ...results, ...noted], 'by memo wait');
+    // A held memo is not delivered: memo wait does not show it, also not its notes.
+    const held = (c) => hold.includes(c.id);
+    polls.set(who, { at: ts(), hold: [...to_you, ...noted].filter(held).map((c) => c.id) });
+    delivered(who, [...to_you.filter((c) => !held(c)), ...results, ...noted.filter((c) => !held(c))], 'by memo wait');
     return { to_you, results, noted, unanswered: unanswered(who).length };
   }
 
@@ -403,7 +405,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
       const poll = polls.get(name) || null;
       const item = (c, stage, since) => ({
         id: c.id, stage, sender: c.sender, recipient: c.recipient, state: c.state, line: line(c), since,
-        ...events.deliveryOf(c.id, name), held: stage === 'open' && !!poll?.hold.includes(c.id),
+        ...events.deliveryOf(c.id, name), held: (stage === 'open' || stage === 'note') && !!poll?.hold.includes(c.id),
       });
       const open = db.prepare(`SELECT * FROM memos WHERE recipient = ? AND state = 'open' ORDER BY id`).all(name);
       const results = db.prepare(`SELECT * FROM memos WHERE sender = ? AND state != 'open' AND acked = 0 ORDER BY id`).all(name);
