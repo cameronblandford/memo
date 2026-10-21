@@ -20,7 +20,8 @@ while :; do
     keys="$(tmux capture-pane -p -J -S -100 -t "=$session:" 2>/dev/null | memo screen --as "$name" 2>/dev/null)" \
       || { keys=""; memo ping --as "$name" >/dev/null 2>&1 || true; }
     for k in $keys; do
-      case "$k" in Escape|Enter) tmux send-keys -t "=$session:" "$k" ;; esac
+      # The session can end between the screen and the key. A failed key must not end this loop (set -e).
+      case "$k" in Escape|Enter) tmux send-keys -t "=$session:" "$k" 2>/dev/null || true ;; esac
     done
   elif memo prompt --as "$name" >/dev/null 2>&1; then
     tmux new-session -d -s "$session" -x 200 -y 50 "$root/scripts/agent.sh" "$name"

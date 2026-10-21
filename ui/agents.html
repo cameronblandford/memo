@@ -32,7 +32,8 @@ const closed = new Set();
 try { for (const name of JSON.parse(localStorage.getItem('memo-closed-screens') || '[]')) closed.add(name); } catch {}
 // The text of the last view. The list is built again only when it changes, so a tap does not go to a button that the list removed.
 let shown = '';
-let failed = false;
+// A note stays until this time. After it, the next load that works removes the note.
+let keepNote = 0;
 const remember = () => { try { localStorage.setItem('memo-closed-screens', JSON.stringify([...closed])); } catch {} };
 
 function state(agent) {
@@ -52,8 +53,8 @@ function control(agent) {
 async function key(agent, k) {
   try {
     await api('/api/agent/key', { name: agent.name, key: k });
-    note(agent.kind === 'remote' ? `${k} goes to ${agent.name} with its next screen, in 15 seconds or less.` : '');
-  } catch (error) { note(error.message); return; }
+    if (agent.kind === 'remote') { note(`${k} goes to ${agent.name} with its next screen, in 15 seconds or less.`); keepNote = Date.now() + 20000; }
+  } catch (error) { note(error.message); keepNote = Date.now() + 8000; return; }
   setTimeout(load, 700);
 }
 
@@ -94,7 +95,7 @@ async function load() {
   try {
     const agents = await api('/api/agents');
     const screens = await Promise.all(agents.map((a) => (a.kind !== 'short' && (a.running || a.kind === 'remote') ? api(`/api/agent/screen?name=${encodeURIComponent(a.name)}`).catch(() => null) : null)));
-    if (failed) { failed = false; note(''); }
+    if (Date.now() > keepNote) note('');
     const current = JSON.stringify([agents.map((a) => [{ ...a, contact: age(a.contact) }, age(a.updated), age(a.recap_at)]),
       screens.map((x) => x && [x.text, x.dialog, age(x.at), age(x.changed)])]);
     if (current === shown) return;
@@ -104,10 +105,10 @@ async function load() {
     list.replaceChildren(...agents.map((a, i) => { const node = view(a, screens[i]); node.dataset.name = a.name; return node; }));
     for (const [name, top] of scrolled) { const p = list.querySelector(`article[data-name="${CSS.escape(name)}"] .screen pre`); if (p) requestAnimationFrame(() => { p.scrollTop = top; }); }
     loadImages(list);
-  } catch (error) { failed = true; note(error.message); }
+  } catch (error) { note(error.message); keepNote = 0; }
 }
 async function run(path, body) {
-  try { await api(path, body); } catch (error) { note(error.message); return; }
+  try { await api(path, body); } catch (error) { note(error.message); keepNote = Date.now() + 8000; return; }
   shown = '';
   await load();
 }
