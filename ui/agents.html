@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Memo Agents</title>
 <link rel="stylesheet" href="/ui/common.css">
+<style>
+/* The tail of a session. It scrolls inside its box, so a long line does not make the page wider. */
+.screen pre { margin: .5rem 0; padding: .5rem .65rem; max-height: 22rem; overflow: auto; background: var(--bg); border: 1px solid var(--line);
+  border-radius: .5rem; font: .72rem/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
+.screen summary { cursor: pointer; color: var(--dim); font-size: .9rem; }
+.dialog { color: var(--warn); font-weight: 600; }
+</style>
 </head>
 <body>
 <header><h1>Agents</h1><a href="/inbox">Inbox</a><a href="/log">Log</a></header>
@@ -14,12 +21,20 @@
 </form>
 <p id="note" role="status" hidden></p>
 <main id="list"></main>
-<footer>To look at a session, run this in a terminal: tmux attach -t memo-main. To leave it, press Control-b, then d.</footer>
+<footer>The screen is the end of each session, read each 5 seconds (each 15 seconds for an agent on a different computer). Escape closes a Claude Code dialog. To type into a session, use Remote Control in the Claude app, or run tmux attach -t memo-&lt;name&gt; on its computer.</footer>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages } from '/ui/common.js';
 import { render as markdown } from '/ui/markdown.js';
 
 const list = document.getElementById('list');
+// The screens that the owner closed. They stay closed after each reload of the list.
+const closed = new Set();
+try { for (const name of JSON.parse(localStorage.getItem('memo-closed-screens') || '[]')) closed.add(name); } catch {}
+// The text of the last view. The list is built again only when it changes, so a tap does not go to a button that the list removed.
+let shown = '';
+// A note stays until this time. After it, the next load that works removes the note.
+let keepNote = 0;
+const remember = () => { try { localStorage.setItem('memo-closed-screens', JSON.stringify([...closed])); } catch {} };
 
 function state(agent) {
   if (agent.kind === 'short') return `Last run: ${age(agent.updated)}`;
@@ -35,7 +50,34 @@ function control(agent) {
   return button('Start', () => run('/api/agent/start', { name: agent.name }));
 }
 
-function view(agent) {
+async function key(agent, k) {
+  try {
+    await api('/api/agent/key', { name: agent.name, key: k });
+    if (agent.kind === 'remote') { note(`${k} goes to ${agent.name} with its next screen, in 15 seconds or less.`); keepNote = Date.now() + 20000; }
+  } catch (error) { note(error.message); keepNote = Date.now() + 8000; return; }
+  setTimeout(load, 700);
+}
+
+function screenView(agent, screen) {
+  const details = el('details', { className: 'screen', open: !closed.has(agent.name) });
+  details.addEventListener('toggle', () => { if (details.open) closed.delete(agent.name); else closed.add(agent.name); remember(); });
+  if (!screen || screen.text === null) {
+    details.append(el('summary', {}, 'Screen'), el('p', { className: 'dim' }, agent.kind === 'remote' ? 'No screen yet. The computer of the agent sends it while the session runs.' : 'No session.'));
+    return details;
+  }
+  const summary = el('summary', {}, `Screen, ${age(screen.at)}; last change ${age(screen.changed)}`);
+  const pre = el('pre', {}, screen.text);
+  details.append(summary);
+  if (screen.dialog) details.append(el('p', { className: 'dialog' }, 'A dialog waits for an answer. Escape closes it.'));
+  details.append(pre, el('div', { className: 'row' },
+    button('Escape', () => key(agent, 'Escape'), 'Send Escape: close a dialog, or interrupt the turn'),
+    button('Enter', () => key(agent, 'Enter'), 'Send Enter: confirm the selected choice of a dialog')));
+  // Show the end of the screen, as a terminal does.
+  requestAnimationFrame(() => { pre.scrollTop = pre.scrollHeight; });
+  return details;
+}
+
+function view(agent, screen) {
   const parts = [el('div', { className: 'meta' }, el('span', { className: 'sender' }, agent.name), ` ${state(agent)}`)];
   if (agent.kind !== 'short') {
     parts.push(el('p', { className: 'text' }, agent.status ? `${agent.status} (${age(agent.updated)})` : 'No status line.'));
@@ -44,19 +86,30 @@ function view(agent) {
   if (agent.kind !== 'short' && agent.recap && !agent.running && !agent.online) {
     parts.push(el('details', { open: true }, el('summary', {}, `Recap, ${age(agent.recap_at)}`), el('div', { className: 'md' }, ...markdown(agent.recap, el))));
   }
+  if (agent.kind !== 'short' && (agent.running || agent.kind === 'remote')) parts.push(screenView(agent, screen));
   if (agent.kind === 'long') parts.push(el('div', { className: 'row' }, control(agent)));
   return el('article', { className: 'memo' }, ...parts);
 }
 
 async function load() {
   try {
-    list.replaceChildren(...(await api('/api/agents')).map(view));
+    const agents = await api('/api/agents');
+    const screens = await Promise.all(agents.map((a) => (a.kind !== 'short' && (a.running || a.kind === 'remote') ? api(`/api/agent/screen?name=${encodeURIComponent(a.name)}`).catch(() => null) : null)));
+    if (Date.now() > keepNote) note('');
+    const current = JSON.stringify([agents.map((a) => [{ ...a, contact: age(a.contact) }, age(a.updated), age(a.recap_at)]),
+      screens.map((x) => x && [x.text, x.dialog, age(x.at), age(x.changed)])]);
+    if (current === shown) return;
+    shown = current;
+    // A rebuild of the list must not move the page or a screen that the owner scrolled.
+    const scrolled = new Map([...list.querySelectorAll('article')].map((n) => [n.dataset.name, n.querySelector('.screen pre')]).filter(([, p]) => p && p.scrollTop + p.clientHeight < p.scrollHeight - 4).map(([name, p]) => [name, p.scrollTop]));
+    list.replaceChildren(...agents.map((a, i) => { const node = view(a, screens[i]); node.dataset.name = a.name; return node; }));
+    for (const [name, top] of scrolled) { const p = list.querySelector(`article[data-name="${CSS.escape(name)}"] .screen pre`); if (p) requestAnimationFrame(() => { p.scrollTop = top; }); }
     loadImages(list);
-    note('');
-  } catch (error) { note(error.message); }
+  } catch (error) { note(error.message); keepNote = 0; }
 }
 async function run(path, body) {
-  try { await api(path, body); } catch (error) { note(error.message); return; }
+  try { await api(path, body); } catch (error) { note(error.message); keepNote = Date.now() + 8000; return; }
+  shown = '';
   await load();
 }
 
