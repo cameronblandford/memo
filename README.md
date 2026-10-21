@@ -172,7 +172,7 @@ On the computer of the agent:
 3. Add the agent to `local/agents.json` with its `dir` and `model`, for example `{ "name": "mac", "kind": "remote", "dir": "~", "model": "claude-opus-5-5" }`.
 4. Run `scripts/remote-agent.sh mac`, or use the LaunchAgent `launchd/memo.remote.plist.example`.
 
-The script starts the session of the agent in the tmux session `memo-mac` when the server answers. Memos to the agent wait on the server while its computer is offline. The Agents page shows "Online" for 2 minutes after the last request of the agent. The server cannot start or stop the session; stop it on its computer with `tmux kill-session -t memo-mac`.
+The script starts the session of the agent in the tmux session `memo-mac` when the server answers. Memos to the agent wait on the server while its computer is offline. The Agents page shows "Online" for 2 minutes after the last request of the agent. While the session exists, the script sends `memo ping --as mac` each minute, so the agent shows as online also while it works. The server cannot start or stop the session; stop it on its computer with `tmux kill-session -t memo-mac`.
 
 The remote agent uses `MEMO_TOKEN`, which can do all operations. Give it only to a computer that you trust.
 

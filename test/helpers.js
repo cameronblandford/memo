@@ -11,7 +11,7 @@ import { createTicks } from '../src/ticks.js';
 export const TOKEN = 'full-token-0123456789';
 export const LIAISON_TOKEN = 'liaison-token-0123456789';
 export const ROOT = join(import.meta.dirname, '..');
-const CONFIG = [
+export const CONFIG = [
   { name: 'main', kind: 'long', dir: '~/p', model: 'm' },
   { name: 'liaison', kind: 'short', dir: '~/p', model: 'm' },
 ];
