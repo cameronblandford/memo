@@ -148,6 +148,8 @@ The day of the ticks starts at 03:00, so a tick of the evening is still there af
 
 Open `http://127.0.0.1:3280/agents`. Each agent has one row: its state, its status line, and its counts of open memos.
 
+The row of an agent with a session also shows the screen: the last 80 lines of its tmux session, read each 5 seconds. If the end of the screen is a Claude Code dialog (a choice that waits for an answer), the row says so. The Escape button closes such a dialog; the Enter button confirms its selected choice. These are the only keys that the page can send. To type into a session, use Remote Control in the Claude app, or `tmux attach` on its computer.
+
 - "Start" starts the session of a long agent in the tmux session `memo-<name>`. To look at it: `tmux attach -t memo-main`. To leave it: Control-b, then d.
 - "Stop" asks the agent for a recap, then ends the session. If no recap arrives in 3 minutes, the session ends with no recap. "Stop now" ends the session immediately.
 - The next session of the agent gets the recap after its charter.
@@ -172,7 +174,7 @@ On the computer of the agent:
 3. Add the agent to `local/agents.json` with its `dir` and `model`, for example `{ "name": "mac", "kind": "remote", "dir": "~", "model": "claude-opus-5-5" }`.
 4. Run `scripts/remote-agent.sh mac`, or use the LaunchAgent `launchd/memo.remote.plist.example`.
 
-The script starts the session of the agent in the tmux session `memo-mac` when the server answers. Memos to the agent wait on the server while its computer is offline. The Agents page shows "Online" for 2 minutes after the last request of the agent. While the session exists, the script sends `memo ping --as mac` each minute, so the agent shows as online also while it works. The server cannot start or stop the session; stop it on its computer with `tmux kill-session -t memo-mac`.
+The script starts the session of the agent in the tmux session `memo-mac` when the server answers. Memos to the agent wait on the server while its computer is offline. The Agents page shows "Online" for 2 minutes after the last request of the agent. While the session exists, the script sends the end of the session to the Agents page each 15 seconds (`memo screen --as mac`), so the agent shows as online also while it works. The Escape and Enter buttons of the page go back to the script with the next screen, and the script sends them to the session. The server cannot start or stop the session; stop it on its computer with `tmux kill-session -t memo-mac`.
 
 The remote agent uses `MEMO_TOKEN`, which can do all operations. Give it only to a computer that you trust.
 

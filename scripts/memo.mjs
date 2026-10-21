@@ -23,6 +23,7 @@ const USAGE = `Usage:
   memo list --to <name>
   memo prompt --as <agent>
   memo ping --as <agent>
+  memo screen --as <agent> < <screen text>
   memo image <path> [<text that describes the image>]
   memo wait --as <agent> [--hold <id>,<id>] [<max_minutes>]
   memo tick add --impact 1-5 --effort <effort> [--days mon,wed,fri] [--every <days>] [--after HH:MM] [--by HH:MM] [--] <text>
@@ -265,6 +266,15 @@ const commands = {
   // and does not wait. It only reads, and prints nothing. scripts/remote-agent.sh runs it each minute.
   async ping() {
     await call(`/api/news?for=${query(need('as'))}`, undefined, { soft: true });
+  },
+  // The tail of the session of a remote agent, from stdin, for the Agents page. It prints the keys that the owner
+  // sent from the page (Escape or Enter), one on each line. scripts/remote-agent.sh sends them to the session.
+  async screen() {
+    const name = need('as');
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    const r = await call('/api/agent/screen', { name, text: Buffer.concat(chunks).toString('utf8') });
+    for (const k of r.keys || []) console.log(k);
   },
   // A tick is a small action of the owner that comes back. See "Ticks" in README.md.
   async tick() {

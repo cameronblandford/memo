@@ -116,6 +116,16 @@ test('ping marks a remote agent online and prints nothing', () => withServer(asy
   assert.equal(mac().online, true);
 }, { config: [...CONFIG, { name: 'mac', kind: 'remote' }] }));
 
+test('screen sends the text of stdin as the screen of a remote agent', () => withServer(async ({ url, agents }) => {
+  const r = await new Promise((done) => {
+    const child = execFile('node', [CLI, 'screen', '--as', 'mac'], { env: { ...process.env, MEMO_URL: url, MEMO_TOKEN: TOKEN } }, (error, stdout, stderr) => done({ code: error?.code ?? 0, stdout, stderr }));
+    child.stdin.end('The tests pass.\n');
+  });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.stdout, '');
+  assert.equal(agents.screen('mac').text, 'The tests pass.');
+}, { config: [...CONFIG, { name: 'mac', kind: 'remote' }] }));
+
 test('wait exits with code 0 and prints the news when news exists', () => withServer(async ({ memo, store }) => {
   store.send({ from: 'cam', to: 'main', text: 'Update the README.' });
   store.send({ from: 'main', to: 'cam', text: 'Approve?', impact: 3, effort: 'micro' });
