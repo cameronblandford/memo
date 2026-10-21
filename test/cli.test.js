@@ -5,14 +5,14 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { serve } from '@hono/node-server';
-import { makeApp, TOKEN, ROOT } from './helpers.js';
+import { makeApp, TOKEN, ROOT, CONFIG } from './helpers.js';
 
 const run = promisify(execFile);
 const CLI = join(ROOT, 'scripts', 'memo.mjs');
 
 // The server runs in this process, so the client must run without a block of the event loop (no execFileSync).
-async function withServer(fn) {
-  const made = makeApp();
+async function withServer(fn, options) {
+  const made = makeApp(options);
   const server = await new Promise((done) => { const s = serve({ fetch: made.app.fetch, hostname: '127.0.0.1', port: 0 }, () => done(s)); });
   const url = `http://127.0.0.1:${server.address().port}`;
   const memo = async (args, env = {}) => {
@@ -106,6 +106,25 @@ test('prompt prints the charter text', () => withServer(async ({ memo }) => {
   assert.equal(r.code, 1);
   assert.match(r.stderr, /No agent has the name nobody/);
 }));
+
+test('ping marks a remote agent online and prints nothing', () => withServer(async ({ memo, agents }) => {
+  const mac = () => agents.list().find((a) => a.name === 'mac');
+  assert.equal(mac().online, false);
+  const r = await memo(['ping', '--as', 'mac']);
+  assert.equal(r.code, 0);
+  assert.equal(r.stdout, '');
+  assert.equal(mac().online, true);
+}, { config: [...CONFIG, { name: 'mac', kind: 'remote' }] }));
+
+test('screen sends the text of stdin as the screen of a remote agent', () => withServer(async ({ url, agents }) => {
+  const r = await new Promise((done) => {
+    const child = execFile('node', [CLI, 'screen', '--as', 'mac'], { env: { ...process.env, MEMO_URL: url, MEMO_TOKEN: TOKEN } }, (error, stdout, stderr) => done({ code: error?.code ?? 0, stdout, stderr }));
+    child.stdin.end('The tests pass.\n');
+  });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.stdout, '');
+  assert.equal(agents.screen('mac').text, 'The tests pass.');
+}, { config: [...CONFIG, { name: 'mac', kind: 'remote' }] }));
 
 test('wait exits with code 0 and prints the news when news exists', () => withServer(async ({ memo, store }) => {
   store.send({ from: 'cam', to: 'main', text: 'Update the README.' });

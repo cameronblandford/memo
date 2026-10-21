@@ -11,7 +11,7 @@ import { createTicks } from '../src/ticks.js';
 export const TOKEN = 'full-token-0123456789';
 export const LIAISON_TOKEN = 'liaison-token-0123456789';
 export const ROOT = join(import.meta.dirname, '..');
-const CONFIG = [
+export const CONFIG = [
   { name: 'main', kind: 'long', dir: '~/p', model: 'm' },
   { name: 'liaison', kind: 'short', dir: '~/p', model: 'm' },
 ];
@@ -20,7 +20,7 @@ export function makeApp({ tailscale, config = CONFIG, ticksOn = true } = {}) {
   const db = openDb();
   const store = createStore(db, { owner: 'cam', names: ['cam', 'discord', ...config.map((a) => a.name)], forwardTo: config.filter((a) => a.kind !== 'short').map((a) => a.name) });
   const sessions = new Set();
-  const tmux = { has: (s) => sessions.has(s), start: (s) => sessions.add(s), kill: (s) => sessions.delete(s), send: () => {} };
+  const tmux = { has: (s) => sessions.has(s), start: (s) => sessions.add(s), kill: (s) => sessions.delete(s), send: () => {}, capture: (s) => (sessions.has(s) ? `Screen of ${s}` : ''), key: () => {} };
   const agents = createAgents({ db, config, root: ROOT, owner: 'cam', tmux, counts: store.counts });
   const images = createImages(mkdtempSync(join(tmpdir(), 'memo-images-')));
   const ticks = createTicks(db);

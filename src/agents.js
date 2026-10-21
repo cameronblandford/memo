@@ -13,6 +13,20 @@ const MAX_RECAP = 2000;
 const MAX_STATUS = 300;
 // A remote agent asks for news each 30 seconds while it waits. After this time with no request, it shows as offline.
 const ONLINE_MS = 120000;
+// The Agents page shows the tail of each session: this many lines, and this many characters or fewer.
+const SCREEN_LINES = 80;
+const MAX_SCREEN = 20000;
+// The keys that the page can send to a session. They close a Claude Code dialog that stops an agent.
+const KEYS = ['Escape', 'Enter'];
+// The last line of a Claude Code dialog (a choice that waits for an answer).
+const DIALOG = /Enter to confirm|Esc to cancel/;
+
+// The last lines of a screen, with no spaces at the line ends and no blank lines at the end.
+export function tail(text) {
+  const lines = String(text).split('\n').map((l) => l.trimEnd());
+  while (lines.length && !lines.at(-1)) lines.pop();
+  return lines.slice(-SCREEN_LINES).join('\n').slice(-MAX_SCREEN);
+}
 
 
 export const session = (name) => `memo-${name}`;
@@ -55,6 +69,9 @@ export function realTmux() {
       setTimeout(() => run('send-keys', '-t', `=${s}:`, '-l', text), 300);
       setTimeout(() => run('send-keys', '-t', `=${s}:`, 'Enter'), 800);
     },
+    // -J joins the lines that tmux wrapped. -S -100 adds lines above the visible part.
+    capture: (s) => run('capture-pane', '-p', '-J', '-S', '-100', '-t', `=${s}:`).stdout || '',
+    key: (s, key) => { run('send-keys', '-t', `=${s}:`, key); },
   };
 }
 
@@ -62,6 +79,8 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
   const ts = () => now().toISOString();
   const timers = new Map();
   const contacts = new Map(); // remote agent -> the time of its last request, in milliseconds
+  const screens = new Map(); // agent -> { text, at, changed }: the last screen, its time, and the time of its last change
+  const keys = new Map(); // remote agent -> the keys that wait for its next screen
   const events = createEvents(db, now);
   for (const a of config) db.prepare('INSERT OR IGNORE INTO status (agent) VALUES (?)').run(a.name);
 
@@ -154,6 +173,43 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     return { name, saved: true, stopped };
   }
 
+  function keep(name, text) {
+    const last = screens.get(name);
+    const at = ts();
+    screens.set(name, { text, at, changed: last && last.text === text ? last.changed : at });
+  }
+
+  // The tail of the session. The server reads it for a long agent; a remote agent sends it (setScreen).
+  function screen(name) {
+    const a = known(name);
+    if (a.kind === 'short') throw new MemoError(400, `${name} is a short agent. It has no session to show.`);
+    if (a.kind === 'long' && running(name)) keep(name, tail(tmux.capture(session(name))));
+    const s = screens.get(name);
+    if (!s) return { name, text: null, at: null, changed: null, dialog: false };
+    return { name, ...s, dialog: DIALOG.test(s.text.split('\n').slice(-12).join('\n')) };
+  }
+
+  // From the computer of a remote agent. The answer gives the keys that wait for the session.
+  function setScreen(name, text) {
+    const a = known(name);
+    if (a.kind !== 'remote') throw new MemoError(400, `${name} is not a remote agent. The server reads its screen itself.`);
+    if (typeof text !== 'string') throw new MemoError(400, 'text is necessary.');
+    contact(name);
+    keep(name, tail(text));
+    const waiting = keys.get(name) || [];
+    keys.delete(name);
+    return { name, saved: true, keys: waiting };
+  }
+
+  function key(name, k) {
+    const a = known(name);
+    if (!KEYS.includes(k)) throw new MemoError(400, `The key must be Escape or Enter.`);
+    if (a.kind === 'remote') { keys.set(name, [...(keys.get(name) || []), k].slice(-5)); return { name, queued: true }; }
+    if (a.kind !== 'long' || !running(name)) throw new MemoError(400, `${name} has no session that runs on this server.`);
+    tmux.key(session(name), k);
+    return { name, sent: true };
+  }
+
   // A request from the computer of a remote agent. The Agents page shows from it if the agent is online.
   function contact(name) {
     if (config.some((a) => a.name === name && a.kind === 'remote')) contacts.set(name, now().getTime());
@@ -191,5 +247,5 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
     }
   }
 
-  return { list, work, start, stop, recap, setStatus, prompt, defaultAgent, resume, contact };
+  return { list, work, start, stop, recap, setStatus, prompt, defaultAgent, resume, contact, screen, setScreen, key };
 }
