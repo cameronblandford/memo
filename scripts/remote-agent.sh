@@ -16,7 +16,9 @@ PATH="$root/scripts:$HOME/.local/bin:$HOME/Library/pnpm/bin:/opt/homebrew/bin:/u
 session="memo-$name"
 while :; do
   if tmux has-session -t "=$session" 2>/dev/null; then
-    keys="$(tmux capture-pane -p -J -S -100 -t "=$session:" 2>/dev/null | memo screen --as "$name" 2>/dev/null)" || keys=""
+    # A server without the screen route (an older version) refuses it. Then "memo ping" keeps the agent online.
+    keys="$(tmux capture-pane -p -J -S -100 -t "=$session:" 2>/dev/null | memo screen --as "$name" 2>/dev/null)" \
+      || { keys=""; memo ping --as "$name" >/dev/null 2>&1 || true; }
     for k in $keys; do
       case "$k" in Escape|Enter) tmux send-keys -t "=$session:" "$k" ;; esac
     done
