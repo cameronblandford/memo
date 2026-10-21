@@ -118,6 +118,31 @@ test('a reply to robo in a channel that is not a mail channel makes a memo', asy
   } finally { t.close(); }
 });
 
+test('an answer of the owner to a memo from the liaison starts one liaison run, and a peek is not a delivery', async () => {
+  const t = await setup({ [MAIL]: [message('10', other, 'old')] });
+  try {
+    await t.watch();
+    const ask = t.store.send({ from: 'liaison', to: 'cam', text: 'Send this draft?', impact: 4, effort: 'micro' }).memo;
+    const info = t.store.send({ from: 'liaison', to: 'cam', text: 'A new kit.', impact: 2, effort: 'short' }).memo;
+    assert.equal((await t.watch()).stdout.trim(), '', 'no answer yet: no run');
+    t.store.reply(ask.id, 'Yes, send it.');
+    assert.match((await t.watch()).stdout, /answers of the owner to the liaison, started the liaison/);
+    assert.equal((await t.watch()).stdout.trim(), '', 'the same answer starts no second run');
+    t.store.note(info.id, 'cam', 'Which version?');
+    assert.match((await t.watch()).stdout, /started the liaison/, 'a note of the owner starts a run');
+    assert.equal((await t.watch()).stdout.trim(), '');
+    t.store.note(info.id, 'cam', 'And where is it?');
+    assert.match((await t.watch()).stdout, /started the liaison/, 'a second note starts a run');
+    // The watcher only looks: the liaison did not get the answers, so they stay for its memo wait.
+    assert.deepEqual(t.store.events.list().filter((e) => e.kind === 'delivered'), []);
+    assert.deepEqual(t.store.news('liaison').results.map((c) => c.id), [ask.id]);
+    t.store.ack(ask.id);
+    t.store.ack(info.id);
+    assert.equal((await t.watch()).stdout.trim(), '');
+    assert.deepEqual(t.state()._answers, []);
+  } finally { t.close(); }
+});
+
 test('a dry run prints the memo and sends nothing', async () => {
   const t = await setup({ [MAIL]: [message('10', other, 'old')] });
   try {

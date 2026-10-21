@@ -4,6 +4,8 @@
 One run reads each text channel once. It sends a memo from `discord` to the agent `liaison`, and starts one short liaison run, for:
   - each message that mentions the bot or replies to a message of the bot, in any channel;
   - each message in a mail channel (DISCORD_MAIL_CHANNELS in .env).
+It also starts a liaison run when the owner answered a memo from the liaison (a reply, a close, or a note) and the
+liaison did not ack the answer yet (the news of memo wait, read with peek=1, so it is not a delivery).
 Messages from the bot are ignored. A message from the owner counts only when it mentions the bot or replies to it,
 or when it is in one of DISCORD_OWNER_MAIL_CHANNELS.
 A memo for a message from the owner's own account (DISCORD_OWNER_ID, checked by account id) is marked trusted. Only a trusted memo
@@ -101,19 +103,28 @@ def main():
     # Mail that arrived while a liaison run was active can stay open, because run-agent.sh skips a second run.
     # Each such memo gets one more run. "_retried" holds the memo ids, so a memo that stays open does not
     # start a run each 30 seconds.
-    left = False
+    # The answers of the owner to memos from the liaison work the same way: each answer gets one run.
+    # "_answers" holds a key for each answer: "r<id>" for a reply or close, "n<id>:<newest note id>" for notes.
+    left = answered = False
     if not made and not first and not DRY and not os.path.isdir(os.path.join(STATE_DIR, "liaison.lock")):
         ready = [c["id"] for c in http(server + "/api/list?to=liaison&peek=1", mh)]
         retried = state.get("_retried", [])
         left = any(i not in retried for i in ready)
         state["_retried"] = [i for i in retried if i in ready] + [i for i in ready if i not in retried]
+        news = http(server + "/api/news?for=liaison&peek=1", mh)
+        keys = [f"r{c['id']}" for c in news.get("results", [])] + \
+               [f"n{c['id']}:{max(n['id'] for n in c.get('notes', [{'id': 0}]))}" for c in news.get("noted", [])]
+        seen = state.get("_answers", [])
+        answered = any(k not in seen for k in keys)
+        state["_answers"] = [k for k in seen if k in keys] + [k for k in keys if k not in seen]
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
     json.dump(state, open(STATE, "w"))
-    if (made or left) and not DRY and not os.environ.get("DISCORD_WATCH_NO_RUN"):
+    if (made or left or answered) and not DRY and not os.environ.get("DISCORD_WATCH_NO_RUN"):
         # The liaison agent handles the new mail in one short run (scripts/run-agent.sh has a lock and a cap).
         subprocess.Popen([os.path.join(ROOT, "scripts", "run-agent.sh"), "liaison"], stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     if left: print("discord-watch: open mail with no run, started the liaison")
+    if answered: print("discord-watch: answers of the owner to the liaison, started the liaison")
     if made or first: print(f"discord-watch: {'first run, ' if first else ''}{made} memo(s)")
 
 try:
