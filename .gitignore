@@ -4,6 +4,5 @@ work/
 .env
 .superpowers/
 local/
-fly.toml
 .env.*
 !.env.example
