@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { MemoError } from './memos.js';
 import { placeTicks } from './ticks.js';
 import { dueSoon } from './rank.js';
+import { approveRule } from './rules.js';
 
 // The only files that /ui/<name> gives.
 const UI = {
@@ -16,6 +17,7 @@ const UI = {
   'feedback.js': 'text/javascript; charset=utf-8',
   'working.js': 'text/javascript; charset=utf-8',
   'lightbox.js': 'text/javascript; charset=utf-8',
+  'rule.js': 'text/javascript; charset=utf-8',
   'common.css': 'text/css; charset=utf-8',
 };
 const LIAISON = 'liaison';
@@ -23,7 +25,8 @@ const digest = (s) => createHash('sha256').update(s).digest();
 const same = (a, b) => timingSafeEqual(digest(a), digest(b));
 
 // ticksOn: the ticks are an optional part. They are off unless MEMO_TICKS is set (see README.md).
-export function createApp({ store, agents, images, ticks, ticksOn = false, root, token, liaisonToken, owner = 'owner', tailscale, now = () => new Date() }) {
+// ownerToken: the optional token of the owner alone (MEMO_OWNER_TOKEN). The agents have token (MEMO_TOKEN).
+export function createApp({ store, agents, images, ticks, ticksOn = false, root, token, liaisonToken, ownerToken, owner = 'owner', tailscale, now = () => new Date() }) {
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -73,9 +76,12 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
 
   app.use('/api/*', async (c, next) => {
     const given = (c.req.header('Authorization') || '').replace(/^Bearer\s*/, '');
+    // isOwner: the request is from the owner, not from an agent. Only the owner token and the Tailscale login of the
+    // owner give it. MEMO_TOKEN does not: the agents have it too.
+    const isOwner = (given && ownerToken && same(given, ownerToken)) || (!given && fromOwnerTailnet(c));
     if (given && same(given, token)) c.set('role', 'full');
     else if (given && liaisonToken && same(given, liaisonToken)) c.set('role', LIAISON);
-    else if (!given && fromOwnerTailnet(c)) c.set('role', 'full');
+    else if (isOwner) { c.set('role', 'full'); c.set('isOwner', true); }
     else throw new MemoError(401, 'The token is missing or wrong.');
     await next();
   });
@@ -186,6 +192,15 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     const b = await body(c);
     only(c, false);
     return c.json(agents.stop(b.name, { now: b.now === true }));
+  });
+  // The Approve rule button of the Inbox. The server writes the rule to the settings file of the agent (src/rules.js).
+  // Only the owner can approve: an agent must not approve its own request.
+  app.post('/api/rule/approve', async (c) => {
+    const b = await body(c);
+    if (!c.get('isOwner')) {
+      throw new MemoError(403, 'Only the owner can approve a rule: open the Inbox through Tailscale, or with MEMO_OWNER_TOKEN. MEMO_TOKEN cannot, because the agents have it.');
+    }
+    return c.json(approveRule({ store, agents, owner, now }, b.id, b.rule));
   });
   app.get('/api/list', (c) => {
     const to = c.req.query('to');

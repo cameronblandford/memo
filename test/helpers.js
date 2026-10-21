@@ -10,6 +10,7 @@ import { createTicks } from '../src/ticks.js';
 
 export const TOKEN = 'full-token-0123456789';
 export const LIAISON_TOKEN = 'liaison-token-0123456789';
+export const OWNER_TOKEN = 'owner-token-0123456789';
 export const ROOT = join(import.meta.dirname, '..');
 export const CONFIG = [
   { name: 'main', kind: 'long', dir: '~/p', model: 'm' },
@@ -24,7 +25,7 @@ export function makeApp({ tailscale, config = CONFIG, ticksOn = true } = {}) {
   const agents = createAgents({ db, config, root: ROOT, owner: 'cam', tmux, counts: store.counts });
   const images = createImages(mkdtempSync(join(tmpdir(), 'memo-images-')));
   const ticks = createTicks(db);
-  const app = createApp({ store, agents, images, ticks, ticksOn, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, owner: 'cam', tailscale });
+  const app = createApp({ store, agents, images, ticks, ticksOn, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, ownerToken: OWNER_TOKEN, owner: 'cam', tailscale });
   return { app, store, agents, images, ticks, sessions };
 }
 

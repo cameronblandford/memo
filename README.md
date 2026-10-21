@@ -44,6 +44,7 @@ The file `.env` holds the configuration and the two tokens. Git ignores it. Its 
 | `HOST`, `PORT` | The interface and the port. The defaults are `127.0.0.1` and `3280`. |
 | `DATABASE_PATH` | The SQLite file. The default is `./data/memo.db`. |
 | `MEMO_TOKEN` | The token of the owner and of the agent `main`. It can do all operations. |
+| `MEMO_OWNER_TOKEN` | Optional. The token of the owner alone. It can do all operations, and it can approve a permission rule (see below). Do not give it to an agent. |
 | `MEMO_LIAISON_TOKEN` | The token of the liaison run. It can only read the memos to `liaison`, send a memo to the owner, close a memo to `liaison`, mark its own results as read, set its own status line, and forward a Discord message that the owner wrote (one time for each message). |
 
 To copy the token for a page (macOS), run `sed -n 's/^MEMO_TOKEN=//p' .env | tr -d '\n' | pbcopy` in the directory of this repository.
@@ -159,6 +160,25 @@ The agents are in `agents.json`. To add an agent, add an entry and a file `chart
 
 To show the live output of an agent on the Agents page, give it the directory of its Claude Code transcripts, for example `"transcripts": "~/.claude/projects/-Users-you-work"` (the name is the `dir` of the agent with each `/` changed to `-`). The page asks for new output each 3 seconds and shows the last 50 entries of the newest `.jsonl` file there. It shows only the visible text of the agent and, for each tool call, the tool name and its short description: never tool inputs, tool results, or thinking. An agent with no `transcripts` shows no output.
 
+## Permission rules from the Inbox
+
+An agent that the Claude Code permission check blocks can ask for a rule:
+
+```sh
+scripts/memo rule --from main --rule 'Bash(npm test:*)' --why 'To run the tests of the website.'
+```
+
+The memo to the owner shows the reason and the rule. Its last line is a marker for the server, which the Inbox hides:
+`<!-- memo-rule: {"agent":"main","rule":"Bash(npm test:*)"} -->`. The Inbox shows the rule of the marker with the button "Approve rule". Reply or Close refuses it.
+
+The agent only asks. On "Approve rule", the server adds the rule to `permissions.allow` in the settings file of the agent, closes the memo with a note, and the agent gets the result with `memo wait`. The rule applies when the session of the agent starts again.
+
+- Give the agent its settings file in `agents.json`, for example `"settings": "~/work/.claude/settings.local.json"`. An agent with no `settings` cannot get rules this way. A remote agent cannot have `settings`: its file is on a different computer.
+- Only the owner can approve: a request through Tailscale Serve with the owner's login (see above), or with `MEMO_OWNER_TOKEN`. `MEMO_TOKEN` cannot, because the agents have it. A program on the computer of the server can act as Tailscale (see above), so the Claude Code rules of an agent must not permit `curl` to the server.
+- The server approves only the exact rule that the Inbox showed. If the memo changed after that, the approval fails. The memo must be open and from the agent that the marker names; a request from `liaison` or `discord` is refused.
+- The server refuses a rule that would let an agent widen its own limits: `*`, `Bash` or `Bash(*)`; a Bash rule that names `.claude` or a settings file; a Bash rule with a wildcard for a shell or an interpreter (for example `Bash(python3:*)`); and an `Edit`, `Write`, `MultiEdit`, or `NotebookEdit` rule that reaches a Claude Code settings file (for example `Edit(~/**)` or `Edit(*.json)`). Any other rule is your decision: a rule such as `Bash(npm run:*)` lets the agent run a script that it can change.
+- The server never changes `deny`, `ask`, `defaultMode`, or other keys. Before a change, it copies the file to `<file>.bak-<time>`. It writes a temporary file and then renames it. A rule that is already there is not added again.
+
 ## The Log page
 
 Open `http://127.0.0.1:3280/log`. It shows what is on its way to each agent, and what happened to each memo.
@@ -216,6 +236,7 @@ scripts/memo status --as main "I update the README of the website."
 scripts/memo recap --as main "The README is complete. Next: the tests."
 scripts/memo wait --as main --hold 12
 scripts/memo forward 12
+scripts/memo rule --from main --rule 'Bash(npm test:*)' --why 'To run the tests.'
 scripts/memo image ~/Desktop/shot.png "The new page"
 ```
 
@@ -260,6 +281,7 @@ To scan a range by hand: `scripts/pre-push-scan.sh --range origin/main..main`
 | `src/ticks.js` | The ticks: their schedule and their place in the queue. |
 | `src/agents.js` | Status, recap, and tmux control of the agents. |
 | `src/events.js` | The event log of the Log page. |
+| `src/rules.js` | The approval of a permission rule: the checks, and the change of the settings file. |
 | `src/app.js` | The HTTP routes and the two tokens. |
 | `scripts/memo.mjs` | The command-line client. |
 | `scripts/agent.sh` | Starts the session of a long agent. |

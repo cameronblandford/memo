@@ -37,6 +37,7 @@ import { render as markdown, summary } from '/ui/markdown.js';
 import { enterSends, fieldHeight } from '/ui/keys.js';
 import { withFeedback } from '/ui/feedback.js';
 import { workSigns, signText } from '/ui/working.js';
+import { parseRule, withoutMarker } from '/ui/rule.js';
 import { shownMemos, sortedMemos, sortChoice, step, countText, filterChoices, tagSuggestions, todayIn, addDays, nextMonday, dueWarning, COMPACT_NOTE, compactAsked, shownNotes } from '/ui/filter.js';
 
 const queue = document.getElementById('queue');
@@ -47,6 +48,7 @@ let ticks = []; // the small actions of now, each with `before`: the id of the m
 let selected = null;
 let postponedCount = 0;
 let zone = 'America/New_York'; // the owner's time zone, from the server: a postponed memo comes back at 9:00 there
+let ruleAgents = null; // the names of the agents with a settings file in agents.json, or null before the list loads
 
 function select(id) {
   selected = id;
@@ -129,6 +131,8 @@ function view(memo) {
     button('Close', (b) => close(memo, b), 'Close the memo. The text in the reply field goes with it.'),
   ];
   const facts = factsOf(memo);
+  // A memo of memo rule: the marker line goes away, and the rule of the marker shows with the Approve rule button.
+  const asked = parseRule(memo.text);
   // seen 0: the owner did not see the memo. seen 2: its text changed after the owner saw it.
   const tag = newTag(memo);
   const tagPanel = tagEditor(memo);
@@ -149,7 +153,8 @@ function view(memo) {
     tagPanel,
     laterPanel,
     // A memo that quotes Discord text gets no frame.
-    el('div', { className: 'md' }, ...markdown(memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: (n, on, box) => check(memo.id, n, on, box) })),
+    el('div', { className: 'md' }, ...markdown(asked ? withoutMarker(memo.text) : memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: (n, on, box) => check(memo.id, n, on, box) })),
+    asked ? ruleBox(memo, asked) : '',
     // The notes of the memo: messages between the owner and the sender while the memo is open.
     shownNotes(memo).length ? el('div', { className: 'notes' }, ...shownNotes(memo).map((n) => el('div', { className: 'note' },
       el('div', { className: 'who' }, el('b', {}, n.author), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
@@ -166,6 +171,20 @@ function view(memo) {
   node.addEventListener('click', () => select(memo.id));
   if (tag) watch.observe(node);
   return node;
+}
+
+// The rule of a memo rule request, as the server reads it from the marker, and the Approve rule button. The click
+// sends this exact rule; the server refuses it if the memo changed. The server writes the rule, never the agent.
+function ruleBox(memo, asked) {
+  const problem = asked.agent !== memo.sender ? `This memo is from ${memo.sender}, but the rule is for ${asked.agent}. It cannot be approved.`
+    : ruleAgents && !ruleAgents.has(asked.agent) ? `agents.json has no settings file for ${asked.agent}, so this rule cannot be approved here.` : '';
+  const approve = button(problem ? 'Cannot approve' : 'Approve rule', (b) => send(b, () => api('/api/rule/approve', { id: memo.id, rule: asked.rule }), `Rule added for ${asked.agent}`),
+    `Add this rule to permissions.allow in the settings file of ${asked.agent}. The memo closes, and ${asked.agent} gets the result.`);
+  approve.disabled = !!problem;
+  return el('div', { className: 'rule' },
+    el('div', { className: 'who' }, 'Permission rule for ', el('b', {}, asked.agent)),
+    el('pre', {}, el('code', {}, asked.rule)),
+    el('div', { className: 'row' }, approve, problem ? el('span', { className: 'dim' }, problem) : ''));
 }
 
 // The Shorten button asks the sender, with a fixed note, to close the memo and send a short new memo:
@@ -506,7 +525,10 @@ const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta }));
 
 async function loadAgents() {
   try {
-    const long = (await api('/api/agents')).filter((a) => a.kind !== 'short');
+    const list = await api('/api/agents');
+    ruleAgents = new Set(list.filter((a) => a.rules).map((a) => a.name));
+    if (memos.some((m) => parseRule(m.text))) render();
+    const long = list.filter((a) => a.kind !== 'short');
     capture.elements.to.replaceChildren(...long.map((a) => el('option', { value: a.name }, a.name)));
     capture.elements.to.hidden = long.length < 2;
   } catch (error) { note(error.message); }
