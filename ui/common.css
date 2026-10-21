@@ -10,6 +10,7 @@ body { margin: 0 auto; max-width: 44rem; padding: 1rem; background: var(--bg); c
 header { display: flex; align-items: baseline; gap: .75rem; margin-bottom: 1rem; }
 header h1 { margin: 0; font-size: 1.4rem; }
 header a { margin-left: auto; color: var(--dim); font-size: .9rem; }
+header a + a { margin-left: 0; }
 /* The filter of the top bar. It has the accent color when it hides memos. */
 #filter { margin-left: auto; max-width: 9rem; padding: .15rem .5rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
 #filter + a, #compact + a { margin-left: 0; }
@@ -195,3 +196,16 @@ footer { margin-top: 1.5rem; }
 .later-row { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; padding: .5rem 0; border-bottom: 1px solid var(--line); }
 .later-row .line { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
 .later-row button { padding: .2rem .6rem; font-size: .85rem; }
+/* The Log page: the memos in flight for each agent, and the event stream. */
+h2 { margin: 1.25rem 0 .6rem; font-size: 1rem; color: var(--dim); }
+.flight { list-style: none; margin: .4rem 0 0; padding: 0; }
+.flight li { padding: .35rem 0; border-top: 1px solid var(--line); }
+.flight .line { overflow-wrap: anywhere; }
+.flight li.late .meta { color: var(--warn); }
+.meta a, .event a { color: var(--accent); }
+#filters select { flex: none; }
+#filters input { max-width: 9rem; }
+.event { display: flex; gap: .6rem; padding: .35rem 0; border-bottom: 1px solid var(--line); font-size: .9rem; }
+.event .when { flex: none; width: 8.5rem; color: var(--dim); font-variant-numeric: tabular-nums; }
+.event .what { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 26rem) { .event { flex-direction: column; gap: 0; } .event .when { width: auto; font-size: .8rem; } }

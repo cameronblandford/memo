@@ -53,6 +53,7 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
   const page = (file) => (c) => c.html(readFileSync(join(root, 'ui', file), 'utf8').replaceAll('__OWNER__', owner), 200, { 'Content-Security-Policy': PAGE_RULE });
   app.get('/inbox', page('inbox.html'));
   app.get('/agents', page('agents.html'));
+  app.get('/log', page('log.html'));
   app.get('/ui/:file', (c) => {
     const file = c.req.param('file');
     if (!Object.hasOwn(UI, file)) return c.notFound();
@@ -190,13 +191,26 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     const to = c.req.query('to');
     only(c, to === LIAISON);
     // The client shows the postponed memos of the owner too, with their return time.
-    return c.json(store.list(to, { withPostponed: true }));
+    const memos = store.list(to, { withPostponed: true });
+    // peek=1: a check that is not a read by the agent, for example by the Discord watcher.
+    if (!c.req.query('peek')) store.delivered(to, memos, 'by memo list');
+    return c.json(memos);
   });
   app.get('/api/news', (c) => {
     const who = c.req.query('for');
     only(c, who === LIAISON);
     agents.contact(who);
-    return c.json(store.news(who));
+    // hold: the ids of memo wait --hold, for the Log page.
+    const hold = (c.req.query('hold') || '').split(',').map(Number).filter(Number.isInteger);
+    return c.json(store.news(who, { hold }));
+  });
+  // The Log page: the memos on their way to each agent, and the newest events (filter: agent, memo).
+  app.get('/api/log', (c) => {
+    only(c, false);
+    const memo = c.req.query('memo') ? Number(c.req.query('memo')) : null;
+    if (memo !== null && !Number.isInteger(memo)) throw new MemoError(400, 'memo must be a memo id.');
+    const agent = c.req.query('agent') || null;
+    return c.json({ inflight: store.inflight(), events: store.events.list({ agent, memo }) });
   });
   app.get('/api/agents', (c) => {
     only(c, false);

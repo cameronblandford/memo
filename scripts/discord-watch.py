@@ -103,7 +103,7 @@ def main():
     # start a run each 30 seconds.
     left = False
     if not made and not first and not DRY and not os.path.isdir(os.path.join(STATE_DIR, "liaison.lock")):
-        ready = [c["id"] for c in http(server + "/api/list?to=liaison", mh)]
+        ready = [c["id"] for c in http(server + "/api/list?to=liaison&peek=1", mh)]
         retried = state.get("_retried", [])
         left = any(i not in retried for i in ready)
         state["_retried"] = [i for i in retried if i in ready] + [i for i in ready if i not in retried]
