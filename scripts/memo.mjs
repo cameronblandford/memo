@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { imageNames } from '../ui/attach.js';
 import { summary } from '../ui/markdown.js';
+import { ruleProblem, ruleText } from '../ui/rule.js';
 
 const USAGE = `Usage:
   memo send --from <name> --to <name> [--impact 1-5 --effort micro|short|hour|half-day|day] [--due YYYY-MM-DD] [--tag <tag> ...] [--title <name>] [--next <step>] [--] <text>
@@ -18,6 +19,7 @@ const USAGE = `Usage:
   memo note <id> --from <name> [--] <text>
   memo compact <id> --from <name> [--title <name>] [--next <step>] [--] <new text>
   memo ack <id> [<id> ...]
+  memo rule --from <agent> --rule '<permission rule>' --why '<one line>' [--impact 1-5] [--to <owner>]
   memo forward <id> [--to <agent>]
   memo status --as <agent> <text>
   memo recap --as <agent> <text>
@@ -30,7 +32,7 @@ const USAGE = `Usage:
   memo tick add --impact 1-5 --effort <effort> [--days mon,wed,fri] [--every <days>] [--after HH:MM] [--by HH:MM] [--] <text>
   memo tick set <id> [--impact ...] [--effort ...] [--days ...] [--every ...] [--after ...] [--by ...] [<new text>]
   memo tick list | memo tick remove <id> | memo tick log [<days>]
-A memo to the owner needs --impact and --effort. --title and --next are the brief for the compact view of the Inbox.`;
+A memo to the owner needs --impact and --effort (memo rule has impact 4 and effort micro). --title and --next are the brief for the compact view of the Inbox.`;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 function fileEnv() {
@@ -78,7 +80,7 @@ async function call(path, body, { soft = false } = {}) {
   return data;
 }
 
-const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by', 'tag', 'title', 'next'];
+const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by', 'tag', 'title', 'next', 'rule', 'why'];
 // An option that can come more than one time. Its value is a list.
 const REPEATED = ['tag'];
 function parse(argv) {
@@ -189,6 +191,21 @@ const commands = {
       console.log('The owner changed the impact of your last memos. Use this when you select an impact:');
       for (const k of r.corrections) console.log(`  memo ${k.memo_id}: ${k.old_impact} to ${k.new_impact} ("${k.text.replace(/\s+/g, ' ')}")`);
     }
+  },
+  // Asks the owner for a Claude Code permission rule. The owner approves it in the Inbox, and the server adds it to the
+  // settings file of the agent. The answer comes with memo wait. The agent cannot write the rule itself.
+  async rule() {
+    const from = need('from');
+    const rule = need('rule');
+    const why = need('why').replace(/\s+/g, ' ').trim();
+    const problem = ruleProblem(rule);
+    if (problem) fail(problem);
+    if (!why) fail('--why needs a reason in one line.');
+    const r = await call('/api/send', {
+      from, to: flags.to || process.env.MEMO_OWNER || file.MEMO_OWNER || 'owner', text: ruleText({ agent: from, rule, why }), impact: flags.impact === undefined ? 4 : Number(flags.impact), effort: 'micro',
+      title: `Permission rule for ${from}`.slice(0, 60), next: 'Approve rule, or Reply to refuse it.',
+    });
+    console.log(`Memo ${r.memo.id} asks the owner for the rule ${rule}. Run memo wait for the answer. After an approval, the rule applies when the session starts again.`);
   },
   async reply() {
     const id = memoId(rest[0]);

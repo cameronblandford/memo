@@ -244,3 +244,20 @@ test('compact closes the memo and prints the new id', () => withServer(async ({ 
   assert.match((await memo(['compact', '2', 'x'])).stderr, /--from is necessary/);
   assert.match((await memo([])).stderr, /memo compact <id> --from <name>/);
 }));
+
+test('memo rule sends a memo to the owner with the rule in a code block and the marker last', () => withServer(async ({ memo, store }) => {
+  const r = await memo(['rule', '--from', 'main', '--rule', 'Bash(npm test:*)', '--why', 'To run the  tests\nof memo.'], { MEMO_OWNER: 'cam' });
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /Memo 1 asks the owner for the rule Bash\(npm test:\*\)/);
+  const m = store.get(1);
+  assert.equal(m.recipient, 'cam');
+  assert.equal(m.impact, 4);
+  assert.equal(m.effort, 'micro');
+  assert.equal(m.title, 'Permission rule for main');
+  assert.match(m.text, /To run the tests of memo\./);
+  assert.match(m.text, /```\nBash\(npm test:\*\)\n```/);
+  assert.equal(m.text.split('\n').at(-1), '<!-- memo-rule: {"agent":"main","rule":"Bash(npm test:*)"} -->');
+  assert.match((await memo(['rule', '--from', 'main', '--rule', 'Bash(a)\nBash(b)', '--why', 'x'], { MEMO_OWNER: 'cam' })).stderr, /one line/);
+  assert.match((await memo(['rule', '--from', 'main', '--why', 'x'])).stderr, /--rule is necessary/);
+  assert.match((await memo(['rule', '--from', 'main', '--rule', 'WebSearch'])).stderr, /--why is necessary/);
+}));

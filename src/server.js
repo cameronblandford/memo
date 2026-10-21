@@ -11,13 +11,17 @@ import { createTicks } from './ticks.js';
 import { localFile } from './paths.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const { MEMO_TOKEN: token, MEMO_LIAISON_TOKEN: liaisonToken } = process.env;
+const { MEMO_TOKEN: token, MEMO_LIAISON_TOKEN: liaisonToken, MEMO_OWNER_TOKEN: ownerToken } = process.env;
 if (!token || token.length < 16) {
   console.error('MEMO_TOKEN is not set or has fewer than 16 characters. See .env.example.');
   process.exit(1);
 }
 if (liaisonToken && (liaisonToken.length < 16 || liaisonToken === token)) {
   console.error('MEMO_LIAISON_TOKEN must have 16 characters or more and must be different from MEMO_TOKEN.');
+  process.exit(1);
+}
+if (ownerToken && (ownerToken.length < 16 || ownerToken === token || ownerToken === liaisonToken)) {
+  console.error('MEMO_OWNER_TOKEN must have 16 characters or more and must be different from MEMO_TOKEN and MEMO_LIAISON_TOKEN.');
   process.exit(1);
 }
 
@@ -56,7 +60,7 @@ if (login && !['127.0.0.1', '::1', 'localhost'].includes(hostname)) {
 }
 const tailscale = login ? { login, host: tailscaleHost } : undefined;
 const ticksOn = ['1', 'true', 'on', 'yes'].includes(String(process.env.MEMO_TICKS || '').toLowerCase());
-const app = createApp({ store, agents, images, ticks, ticksOn, root, token, liaisonToken, owner, tailscale });
+const app = createApp({ store, agents, images, ticks, ticksOn, root, token, liaisonToken, ownerToken, owner, tailscale });
 
 const port = Number(process.env.PORT || 3280);
 serve({ fetch: app.fetch, hostname, port }, () => {
