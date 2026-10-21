@@ -15,6 +15,19 @@ header a + a { margin-left: 0; }
 #filter { margin-left: auto; max-width: 9rem; padding: .15rem .5rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
 #filter + a, #compact + a { margin-left: 0; }
 #filter.on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+/* The order of the Inbox, next to the filter, in the same style. It has the accent color when it is not Rank. */
+#sort { max-width: 9rem; padding: .15rem .5rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
+#sort.on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+/* On a phone the top bar of the Inbox has two lines: the name and the links, then the filter, the order, and Collapse. */
+@media (max-width: 40rem) {
+  header:has(#sort) { flex-wrap: wrap; row-gap: .5rem; align-items: center; }
+  header:has(#sort) #count { white-space: nowrap; }
+  header:has(#sort)::after { content: ''; order: 1; flex-basis: 100%; height: 0; }
+  header:has(#sort) #filter { order: 2; margin-left: 0; }
+  header:has(#sort) #sort { order: 3; }
+  header:has(#sort) #compact { order: 4; }
+  header:has(#sort) a:first-of-type { margin-left: auto; }
+}
 /* The Compact button of the top bar. It has the accent color when the compact view is on. */
 #compact { padding: .15rem .6rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
 #compact.on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
