@@ -13,7 +13,7 @@ header a { margin-left: auto; color: var(--dim); font-size: .9rem; }
 header a + a { margin-left: 0; }
 /* The filter of the top bar. It has the accent color when it hides memos. */
 #filter { margin-left: auto; }
-#filter + a, #compact + a { margin-left: 0; }
+#filter + a, #compact + a, #view + a { margin-left: 0; }
 /* The filter and the order of the Inbox are pills. The filter has the accent color when it hides memos; the order has it when it is not Rank.
    The right padding keeps the text clear of the arrow. */
 #filter, #sort { max-width: 10rem; padding: .15rem 1.6rem .15rem .6rem; border-radius: 1rem; color: var(--dim); font-size: .85rem;
@@ -29,11 +29,57 @@ header a + a { margin-left: 0; }
   header:has(#sort) #filter { order: 2; margin-left: 0; }
   header:has(#sort) #sort { order: 3; }
   header:has(#sort) #compact { order: 4; }
+  header:has(#sort) #view { order: 5; }
   header:has(#sort) a:first-of-type { margin-left: auto; }
 }
 /* The Compact button of the top bar. It has the accent color when the compact view is on. */
 #compact { padding: .15rem .6rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
 #compact.on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+/* The view switch of the top bar: List or One card. The chosen view has the accent color. */
+#view { display: inline-flex; flex: none; border: 1px solid var(--line); border-radius: 1rem; overflow: hidden; }
+#view button { padding: .15rem .6rem; border: 0; border-radius: 0; color: var(--dim); font-size: .85rem; }
+#view button + button { border-left: 1px solid var(--line); }
+#view button[aria-pressed="true"] { background: var(--accent); color: var(--panel); }
+#view button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* The one-card view: the progress line, one large card with a stack under it, and large buttons.
+   overflow-x: clip keeps a card that moves with the finger from making the page wider. */
+.deck { display: grid; gap: .75rem; overflow-x: clip; padding-bottom: .5rem; }
+.deck-top { display: flex; justify-content: space-between; gap: .5rem; color: var(--dim); font-size: .85rem; font-variant-numeric: tabular-nums; }
+.deck-bar { height: .25rem; border-radius: 1rem; background: var(--line); overflow: hidden; }
+.deck-bar i { display: block; height: 100%; background: var(--accent); transition: width .25s ease; }
+.deck-stack { position: relative; }
+.deck-under { position: absolute; inset: 2rem .6rem -.5rem; border: 1px solid var(--line); border-radius: .75rem; background: var(--panel); opacity: .6; }
+.memo.card { position: relative; z-index: 1; margin: 0; padding: 1.1rem 1.1rem 1rem; min-height: 16rem; box-shadow: 0 .25rem 1rem rgb(0 0 0 / .1); transition: transform .2s ease; }
+.memo.card.dragging { transition: none; }
+.memo.card .card-title { margin: .35rem 0 .25rem; color: var(--ink); font-size: 1.35rem; line-height: 1.25; overflow-wrap: anywhere; }
+.memo.card .next { margin-bottom: .5rem; }
+.memo.card .next b { color: var(--accent); font-weight: 600; }
+.memo.card .reply-box { margin-top: .75rem; }
+.memo.card .reply-box textarea { margin-top: 0; }
+.memo.card .panel { margin-top: .75rem; }
+.memo.card.enter-next { animation: card-next .22s ease-out; }
+.memo.card.enter-prev { animation: card-prev .22s ease-out; }
+@keyframes card-next { from { opacity: 0; transform: translateX(2.5rem); } }
+@keyframes card-prev { from { opacity: 0; transform: translateX(-2.5rem); } }
+/* The labels that show while the finger moves the card: where the card goes. */
+.swipe-hint { position: absolute; top: .75rem; padding: .1rem .5rem; border: 1px solid var(--accent); border-radius: .4rem; background: var(--panel);
+  color: var(--accent); font-size: .8rem; font-weight: 600; opacity: 0; pointer-events: none; }
+.swipe-hint.back { left: .75rem; }
+.swipe-hint.next { right: .75rem; }
+.deck-btns { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.deck-btns button { min-height: 3rem; font-weight: 600; }
+.deck button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.deck button:focus-visible, .memo.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.deck-nav { display: flex; flex-wrap: wrap; gap: .5rem; }
+.deck-nav button { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--dim); font-size: .9rem; }
+.memo.card.summary { min-height: 0; }
+.summary .tally { margin: .6rem 0; }
+.summary .tally ul { margin: .25rem 0 0; padding-left: 1.2rem; }
+.summary .deck-btns { margin-top: .75rem; }
+@media (prefers-reduced-motion: reduce) {
+  .memo.card, .deck-bar i { transition: none; }
+  .memo.card.enter-next, .memo.card.enter-prev { animation: none; }
+}
 /* A memo in the compact view: the name and the next step. */
 .memo.brief { cursor: pointer; padding: .6rem 1rem; }
 .memo.brief:hover { border-color: var(--accent); }

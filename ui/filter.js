@@ -81,3 +81,15 @@ export function nextMonday(date) {
 }
 // The warning for the picker: the memo is due before it comes back.
 export const dueWarning = (memo, date) => (memo.due && date && memo.due < date ? `This memo is due ${memo.due}, before it comes back.` : '');
+
+// The one-card view: the place of the card in the list. The memo of the card keeps its card when the list changes.
+// When that memo left the list (reply, close, postpone), the memo that took its place comes next. The place
+// list.length is the end of the cards: the summary.
+export function cardIndex(memos, id, pos) {
+  const at = memos.findIndex((m) => m.id === id);
+  if (at >= 0) return at;
+  return Math.max(0, Math.min(Number.isInteger(pos) ? pos : 0, memos.length));
+}
+
+// The text of the progress line of the one-card view, for example "3 of 12".
+export const cardProgress = (at, total) => `${Math.min(at + 1, total)} of ${total}`;
