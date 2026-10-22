@@ -440,3 +440,11 @@ test('the one-card view has a summary at the end, an undo for Later, and respect
   assert.ok(deckCss.length > 100);
   assert.doesNotMatch(deckCss.replace(/rgb\(0 0 0 \/ \.1\)/, ''), /#[0-9a-f]{3,6}\b|rgb\(|hsl\(/i);
 });
+
+test('on a phone the work sign is in the page, not in the corner over the buttons of a card', async () => {
+  const page = (await get('/inbox')).text;
+  assert.match(page, /const narrow = matchMedia\('\(max-width: 40rem\)'\);/);
+  assert.match(page, /const placeWork = \(\) => \{ if \(narrow\.matches\) queue\.before\(workBox\); else corner\.append\(workBox\); \};/);
+  assert.match(page, /document\.body\.style\.paddingBottom = `\$\{corner\.offsetHeight \+ 24\}px`/);
+  assert.match((await get('/ui/common.css')).text, /body > #work \{ display: flex;/);
+});

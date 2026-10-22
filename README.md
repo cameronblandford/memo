@@ -105,7 +105,7 @@ On the side of the agent:
 - `memo ack` refuses a memo that waits for an answer, so that no memo waits for ever. When the owner selects Done, the memo comes under "Results" with its thread, and the agent acks it as before.
 - `memo list --to <agent>` also shows the memos of the agent that still wait for its answer, for a new session.
 
-A note of the sender on an open memo (not sent back) also shows as "updated". A note, an edit, or an ack of the agent marks as read only the notes of the owner that `memo wait` or `memo list` gave to the agent.
+A note of the sender on an open memo (not sent back) also shows as "updated". An answer of the agent (a note or an edit) marks each note of the owner that exists at that time as read, also a note that the agent saw only in `memo list`. Thus `memo wait` never gives a note again that has an answer, and it never gives an open memo as a memo that waits.
 
 Each memo is one card: the title and the next step of the brief (`memo send --title --next`, or `memo brief`), the buttons, "Details", which opens the full text (a tap, or the key o), and the turns of the thread. A memo with no title shows the first line of its text.
 

@@ -327,3 +327,14 @@ test('the liaison flow with its restricted token: results, a memo sent back, the
   assert.match((await memo(['close', '3', 'Answered in Discord.'], as)).stdout, /closed/);
   assert.equal((await memo(['wait', '--as', 'liaison', '0.01'], as)).code, 2);
 }));
+
+test('list, then the answer, then wait: a turn that has an answer never comes again', () => withServer(async ({ memo, store }) => {
+  store.send({ from: 'main', to: 'cam', text: 'Approve the plan?', impact: 3, effort: 'micro' });
+  store.note(1, 'cam', 'What does it cost?'); // memo 1 waits for main; main never ran memo wait
+  assert.match((await memo(['list', '--to', 'main'])).stdout, /Memos from main that wait for your answer:[\s\S]*What does it cost\?/);
+  await memo(['note', '1', '--from', 'main', '--', '$14 each month.']);
+  assert.equal(store.get(1).state, 'open');
+  const r = await memo(['wait', '--as', 'main', '0.01']);
+  assert.equal(r.code, 2, r.stdout);
+  assert.doesNotMatch(r.stdout, /wait for your answer/);
+}));

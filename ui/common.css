@@ -186,6 +186,9 @@ button:hover { border-color: var(--accent); }
 #corner > :empty { display: none; }
 /* Room under the last text, so the work sign does not cover it. */
 #corner ~ footer { margin-bottom: 3rem; }
+/* On a phone the work sign of the Inbox is in the page, under the capture field (ui/inbox.html moves it). */
+body > #work { display: flex; flex-wrap: wrap; gap: .35rem; margin: 0 0 .75rem; }
+body > #work:empty { display: none; }
 .toast { display: flex; align-items: flex-start; gap: .5rem; padding: .55rem .5rem .55rem .75rem; background: var(--panel); border: 1px solid var(--accent); border-radius: .75rem; box-shadow: 0 .25rem 1rem rgb(0 0 0 / .18); cursor: pointer; font-size: .9rem; animation: toast-in .2s ease-out; }
 .toast .body { flex: 1; min-width: 0; }
 .toast .line { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }

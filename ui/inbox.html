@@ -693,6 +693,18 @@ function sentToast(text) {
 // "queued" has none (see ui/working.js). A pill stays as the same node, so its spinner does not start again.
 // A click goes to the Agents page.
 const workBox = document.getElementById('work');
+// The corner (toasts, the sent sign, the work sign) floats over the page. The page keeps room for it at the bottom, so
+// the owner can always scroll the last card and its buttons out from under it (also at 390 pixels).
+const corner = document.getElementById('corner');
+const room = () => { document.body.style.paddingBottom = `${corner.offsetHeight + 24}px`; };
+new ResizeObserver(room).observe(corner);
+room();
+// On a phone (40rem or less) the work sign is in the page, under the capture field, and not in the corner: there it
+// would float over the buttons of a card.
+const narrow = matchMedia('(max-width: 40rem)');
+const placeWork = () => { if (narrow.matches) queue.before(workBox); else corner.append(workBox); };
+narrow.addEventListener('change', placeWork);
+placeWork();
 const pills = new Map(); // agent name -> node
 function showWork(agents) {
   const signs = workSigns(agents);
