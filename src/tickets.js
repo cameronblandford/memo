@@ -126,11 +126,12 @@ export function createTickets(db, { owner = 'owner', agents = [], now = () => ne
   }
 
   // The open memos to the owner that name a ticket and are not postponed: the questions of the Desk.
+  // A postpone whose return time has passed counts as ended, also before the Inbox runs wake() and clears until.
   function questions() {
     const rows = db.prepare(
       `SELECT id, sender, title, text, next, impact, created, ticket, tags FROM memos
-       WHERE recipient = ? AND state = 'open' AND until IS NULL AND ticket IS NOT NULL ORDER BY impact DESC, id`,
-    ).all(owner);
+       WHERE recipient = ? AND state = 'open' AND (until IS NULL OR until <= ?) AND ticket IS NOT NULL ORDER BY impact DESC, id`,
+    ).all(owner, ts());
     const map = new Map();
     for (const m of rows) {
       const q = { id: m.id, sender: m.sender, title: m.title || summaryOf(m.text, 80) || `Memo ${m.id}`, text: m.text, next: m.next, impact: m.impact, created: m.created, tags: m.tags ? m.tags.split(',') : [] };

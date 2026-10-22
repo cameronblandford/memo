@@ -125,6 +125,19 @@ test('an open memo to the owner that names a ticket puts the ticket in Needs you
   assert.deepEqual(group(tickets.board(), 'needs_you'), []);
 });
 
+test('a question whose postpone ended is in Needs you before the Inbox wakes it', () => {
+  let now = NOW;
+  const { tickets, store } = make(() => now);
+  tickets.set('TFP-22', { state: 'working', agent: 'main' });
+  const { memo } = store.send({ from: 'main', to: 'cam', text: 'Later.', impact: 2, effort: 'micro', ticket: 'TFP-22' });
+  store.postpone(memo.id, '2026-10-24');
+  assert.deepEqual(group(tickets.board(), 'needs_you'), []);
+  // The return time passes. No list() or postponed() of the store runs, so until is still set.
+  now = new Date('2026-10-25T12:00:00.000Z');
+  assert.ok(store.get(memo.id).until, 'until is still set');
+  assert.deepEqual(group(tickets.board(), 'needs_you'), ['TFP-22']);
+});
+
 test('a memo with a ticket that the Desk does not have adds a row with the key as its title', () => {
   const { tickets, store } = make();
   store.send({ from: 'main', to: 'mac', text: 'Look at this.', ticket: 'abc-5' });
