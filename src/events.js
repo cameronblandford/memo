@@ -1,4 +1,4 @@
-// The event log: one row for each step of a memo (send, delivered, ack, note, reply, close, edit, brief, compact, ...)
+// The event log: one row for each step of a memo (send, delivered, ack, note, reply, close, edit, brief, postpone, ...)
 // and for each status line of an agent. The table is append-only (see db.js). The Log page reads it.
 // A row has no token and no full text: the detail is a title or the first 80 characters.
 import { summary } from '../ui/markdown.js';

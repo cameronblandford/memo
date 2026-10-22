@@ -6,6 +6,7 @@ import { makeApp, ROOT } from './helpers.js';
 import { enterSends, fieldHeight } from '../ui/keys.js';
 import { MAX_BYTES, sendsAsIs, fit, withImage, imageNames } from '../ui/attach.js';
 
+const read = (...parts) => readFileSync(join(ROOT, ...parts), 'utf8');
 const get = async (path) => { const r = await makeApp().app.request(path); return { status: r.status, type: r.headers.get('content-type') || '', text: await r.text() }; };
 
 test('the two pages and the two shared files need no token', async () => {
@@ -209,53 +210,86 @@ test('the Inbox keys do not act behind the lightbox, and draft thumbnails are no
   assert.match(common, /draft \|\| !i\.closest\('\.thumbs'\)/);
 });
 
-test('the Inbox has a compact view with the name and the next step, and keeps the choice on the device', async () => {
+test('each card shows the name, the next step, and the buttons; the full text and the notes open under Details', async () => {
   const page = (await get('/inbox')).text;
-  assert.match(page, /id="compact"/);
-  assert.match(page, /memo\.title \|\| summary\(memo\.text\)/);
-  assert.match(page, /'Next: '/);
-  assert.match(page, /localStorage\.setItem\(COMPACT_KEY/);
-  // A brief is not the full text, so it does not mark the memo as seen.
-  assert.match(page, /if \(compact && !opened\.has\(memo\.id\)\) return briefView\(memo\)/);
-  assert.match(page, /querySelectorAll\('\.memo:not\(\.brief\)'\)/);
-  assert.match(page, /clearTimeout\(waiting\.get\(id\)\);\n  waiting\.delete\(id\);\n  old\.replaceWith/);
+  const card = page.slice(page.indexOf('function view(memo) {'), page.indexOf('// The text of a memo, with its check boxes'));
+  assert.ok(card.length > 100);
+  assert.match(card, /el\('div', \{ className: 'name' \}, titleOf\(memo\)\),\n    nextOf\(memo\),/);
+  assert.match(card, /choicesOf\(memo\),\n    detailsOf\(memo, asked\),/);
+  assert.doesNotMatch(card, /bodyOf\(|notesOf\(/, 'the text and the notes are only in Details');
+  assert.match(page, /const titleOf = \(memo\) => memo\.title \|\| summary\(memo\.text\) \|\| `Memo \$\{memo\.id\}`;/);
+  assert.match(page, /el\('details', \{ className: 'details', open: openDetails\.has\(memo\.id\) \},\n    el\('summary', \{\}, 'Details'/);
+  assert.match(page, /bodyOf\(memo, asked\),\n    notesOf\(memo\)\);/);
+  // The key o opens or closes the Details of the selected memo, in the list and on the card.
+  assert.match(page, /else if \(event\.key === 'o'\) toggleDetails\(selected\);/);
+  assert.match(page, /else if \(event\.key === 'o'\) toggleDetails\(cardId\);/);
 });
 
-test('the header button says Collapse and always collapses all memos; when all are collapsed, it shows them in full', async () => {
+test('Collapse, Shorten, and the compact view are gone', async () => {
   const page = (await get('/inbox')).text;
-  assert.match(page, /<button id="compact"[^>]*>Collapse<\/button>/);
-  assert.match(page, /function collapseAll\(\) \{\n  if \(compact && !queue\.querySelector\('\.memo:not\(\.brief\)'\)\) return setCompact\(false\);\n  opened\.clear\(\);\n  setCompact\(true\);/);
-  assert.match(page, /compactButton\.addEventListener\('click', \(\) => \{ collapseAll\(\);/);
+  for (const gone of ['id="compact"', 'Collapse', 'Shorten', 'briefView', 'COMPACT_KEY', 'collapseAll', "'memo-compact'", 'shownNotes']) {
+    assert.ok(!page.includes(gone), `the Inbox must not have ${gone}`);
+  }
+  const filter = await import('../ui/filter.js');
+  assert.equal(filter.COMPACT_NOTE, undefined);
+  const css = (await get('/ui/common.css')).text;
+  assert.doesNotMatch(css, /#compact|\.memo\.brief/);
+  assert.doesNotMatch(read('README.md'), /memo compact|Shorten|Collapse/);
+  for (const name of ['main.md', 'liaison.md']) assert.doesNotMatch(read('charters', name), /compact/);
 });
 
-test('the Inbox has a Shorten button on memos from an agent, which adds the fixed note and then shows Asked', async () => {
-  const { COMPACT_NOTE, compactAsked } = await import('../ui/filter.js');
+test('the answer buttons: one button for each choice of the sender, and a tap replies with that word', async () => {
   const page = (await get('/inbox')).text;
-  assert.match(page, /button\('Shorten', \(b\) => send\(b, \(\) => api\('\/api\/note', \{ id: memo\.id, from: 'cam', text: COMPACT_NOTE \}\)\)/);
-  assert.match(page, /const canCompact = \(memo\) => !\['cam', 'liaison', 'discord'\]\.includes\(memo\.sender\)/);
-  assert.match(page, /button\('Asked'/);
-  assert.match(COMPACT_NOTE, /Use: memo compact <id>$/);
-  assert.equal(compactAsked({ notes: [{ text: COMPACT_NOTE, read: 0 }] }), true);
-  assert.equal(compactAsked({ notes: [{ text: COMPACT_NOTE, read: 1 }] }), false, 'after the agent reads the note, the owner can ask again');
-  assert.equal(compactAsked({ notes: [{ text: 'Add the price.', read: 0 }] }), false);
-  assert.equal(compactAsked({}), false);
+  assert.match(page, /const choicesOf = \(memo, onDone\) => \(memo\.choices\?\.length \? el\('div', \{ className: 'choices'/);
+  assert.match(page, /\.\.\.memo\.choices\.map\(\(word\) => button\(word, \(b\) => send\(b, async \(\) => \{ await api\('\/api\/reply', \{ id: memo\.id, text: word \}\);/);
+  // On the card of the one-card view too, where the reply counts in the summary.
+  const card = page.slice(page.indexOf('function cardView('), page.indexOf('function summaryView('));
+  assert.match(card, /choicesOf\(memo, done\('Replied'\)\)/);
+  // The free reply stays.
+  assert.match(page, /button\('Reply', \(b\) => reply\(memo, area\.value, b\)/);
 });
 
-test('the Inbox hides the Shorten note: it is only a signal to the agent', async () => {
-  const { COMPACT_NOTE, shownNotes } = await import('../ui/filter.js');
-  const memo = { notes: [{ author: 'cam', text: COMPACT_NOTE, read: 0 }, { author: 'main', text: 'Done.', read: 0 }] };
-  assert.deepEqual(shownNotes(memo).map((n) => n.text), ['Done.']);
-  assert.deepEqual(shownNotes({}), []);
+test('the fold: memos with no change for 5 days go to the bottom, and Close all asks in the page', async () => {
+  const { isOld, splitOld, OLD_DAYS } = await import('../ui/filter.js');
+  const now = Date.parse('2026-10-22T12:00:00Z');
+  const day = 86400000;
+  const at = (ms) => new Date(ms).toISOString();
+  assert.equal(OLD_DAYS, 5);
+  assert.equal(isOld({ created: at(now - 6 * day) }, now), true);
+  assert.equal(isOld({ created: at(now - 4 * day) }, now), false);
+  assert.equal(isOld({ created: at(now - 9 * day), updated: at(now - day) }, now), false, 'a new note or edit keeps the memo out of the fold');
+  assert.equal(isOld({ created: at(now - 5 * day) }, now), true);
+  assert.equal(isOld({}, now), false);
+  const list = [{ id: 1, created: at(now - 7 * day) }, { id: 2, created: at(now) }, { id: 3, created: at(now - 8 * day) }, { id: 4, created: at(now - day) }];
+  const { fresh, old } = splitOld(list, now);
+  assert.deepEqual(fresh.map((m) => m.id), [2, 4]);
+  assert.deepEqual(old.map((m) => m.id), [1, 3], 'each part keeps the order of the list');
   const page = (await get('/inbox')).text;
-  assert.match(page, /shownNotes\(memo\)\.length \? el\('div', \{ className: 'notes' \}/);
+  assert.match(page, /queue\.replaceChildren\(\.\.\.fresh\.map\(view\), \.\.\.\(old\.length \? \[foldView\(old\)\] : \[\]\)\);/);
+  assert.match(page, /`Older than \$\{OLD_DAYS\} days \(\$\{n\}\)`/);
+  assert.match(page, /button\('Yes, close all', \(b\) => closeAll\(old\.map\(\(m\) => m\.id\), b\)/);
+  assert.match(page, /button\('Close all', \(\) => \{ foldAsk = true; render\(\);/);
+  assert.ok(!/\bconfirm\(/.test(page), 'no confirm() dialog');
+  assert.match(page, /await api\('\/api\/close', \{ id \}\);/);
 });
 
-test('each memo in the Inbox shows its number, in full and collapsed', async () => {
+test('the postpone picker has Tomorrow, Next week, and In a month', async () => {
+  const { inAMonth } = await import('../ui/filter.js');
+  assert.equal(inAMonth('2026-10-22'), '2026-11-22');
+  assert.equal(inAMonth('2026-12-15'), '2027-01-15');
+  assert.equal(inAMonth('2026-01-31'), '2026-02-28');
+  assert.equal(inAMonth('2028-01-31'), '2028-02-29');
+  assert.equal(inAMonth('2026-03-31'), '2026-04-30');
+  const page = (await get('/inbox')).text;
+  for (const label of ['Tomorrow', 'Next week', 'In a month']) assert.match(page, new RegExp(`choice\\('${label}'`));
+});
+
+test('each memo in the Inbox shows its number in the corner, in the list and on the card', async () => {
   const page = (await get('/inbox')).text;
   assert.match(page, /const numberOf = \(memo\) => el\('span', \{ className: 'num' \}, `#\$\{memo\.id\}`\);/);
-  assert.match(page, /el\('span', \{ className: 'sender' \}, memo\.sender\), facts, numberOf\(memo\), tag\)/);
-  assert.match(page, /: '', numberOf\(memo\), newTag\(memo\)\)/);
-  assert.match((await get('/ui/common.css')).text, /\.meta \.num \{[^}]*tabular-nums/);
+  assert.match(page, /className: 'meta' \}, numberOf\(memo\), tag, el\('span', \{ className: 'sender' \}, memo\.sender\), facts\)/);
+  assert.match(page, /className: 'meta' \}, numberOf\(memo\), tag, el\('span', \{ className: 'sender' \}, memo\.sender\), factsOf\(memo\)\)/);
+  assert.match((await get('/ui/common.css')).text, /\.meta \.num \{ float: right;[^}]*tabular-nums/);
 });
 
 test('the one-card view keeps the card of a memo, and after a memo leaves, the memo in its place comes next', async () => {
@@ -297,11 +331,12 @@ test('a swipe and the arrow keys only go to another card; Reply, Close, and Late
   assert.match(card, /reply\(memo, area\.value, b, done\('Replied'\)\)/);
   assert.match(card, /postponePicker\(memo, done\('Later'\)\)/);
   assert.match(card, /deckButton\('Skip', 'skip', \(\) => cardMove\(1\)/);
-  // The card shows the memo as the list does: the same text, check boxes, images, rule box, and notes.
-  assert.match(card, /bodyOf\(memo, asked\)/);
-  assert.match(card, /notesOf\(memo\)/);
+  // The card shows the memo as the list does: the text, check boxes, images, and notes under Details, and the rule box.
+  assert.match(card, /detailsOf\(memo, asked\)/);
+  assert.match(card, /ruleBox\(memo, asked\)/);
   assert.match(card, /numberOf\(memo\)/);
-  assert.match(card, /'Next: '/);
+  assert.match(card, /nextOf\(memo\)/);
+  assert.match(page, /const nextOf = \(memo\) => \(memo\.next \? el\('div', \{ className: 'next' \}, el\('b', \{\}, 'Next: '\), memo\.next\) : ''\);/);
 });
 
 test('the one-card view has a summary at the end, an undo for Later, and respects reduced motion', async () => {
@@ -313,7 +348,7 @@ test('the one-card view has a summary at the end, an undo for Later, and respect
   assert.match(css, /\.deck \{[^}]*overflow-x: clip/, 'a moving card does not make the page wider');
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.memo\.card, \.deck-bar i \{ transition: none; \}\n  \.memo\.card\.enter-next, \.memo\.card\.enter-prev \{ animation: none; \}/);
   // The one-card view uses only the colors of the page.
-  const deckCss = css.slice(css.indexOf('/* The view switch'), css.indexOf('/* A memo in the compact view'));
+  const deckCss = css.slice(css.indexOf('/* The view switch'), css.indexOf('.memo { scroll-margin'));
   assert.ok(deckCss.length > 100);
   assert.doesNotMatch(deckCss.replace(/rgb\(0 0 0 \/ \.1\)/, ''), /#[0-9a-f]{3,6}\b|rgb\(|hsl\(/i);
 });

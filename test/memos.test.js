@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { openDb } from '../src/db.js';
 import { createStore, MemoError } from '../src/memos.js';
-import { COMPACT_NOTE } from '../ui/filter.js';
 
 const NAMES = ['cam', 'discord', 'main', 'liaison'];
 function makeStore() {
@@ -417,70 +419,25 @@ test('memo brief changes one part, keeps the other, and does not mark the memo u
   refuses(() => s.brief(memo.id, { title: 'Late' }), 409, 'closed');
 });
 
-test('compact closes an open memo to cam and sends a short new memo with the same impact, effort, due date, tags, and brief', () => {
+test('choices: a memo to cam keeps the answer buttons of the sender in their order', () => {
   const s = makeStore();
-  const { memo: old } = s.send({ ...toCam, impact: 3, effort: 'hour', due: '2026-11-01', tags: ['work', 'money'], title: 'Deploy', next: 'Reply yes' });
-  s.seen([old.id]);
-  s.note(old.id, 'cam', COMPACT_NOTE);
-  const { memo, old: closed } = s.compact(old.id, 'main', { text: '- [x] Tests\n- [ ] Approve the deploy' });
-  assert.equal(memo.id, 2);
-  assert.equal(memo.sender, 'main');
-  assert.equal(memo.recipient, 'cam');
-  assert.equal(memo.state, 'open');
-  assert.equal(memo.text, '- [x] Tests\n- [ ] Approve the deploy');
-  assert.equal(memo.impact, 3);
-  assert.equal(memo.effort, 'hour');
-  assert.equal(memo.due, '2026-11-01');
-  assert.deepEqual(memo.tags, ['money', 'work']);
-  assert.equal(memo.title, 'Deploy');
-  assert.equal(memo.next, 'Reply yes');
-  assert.equal(memo.seen, 0, 'the new memo shows as new');
-  assert.equal(closed.state, 'closed');
-  assert.equal(closed.reply, 'Compacted into memo #2.');
-  assert.equal(closed.acked, 1);
-  assert.equal(closed.notes[0].read, 1);
-  // The sender gets no result and no note for the old memo, and the Inbox has only the new memo.
-  const news = s.news('main');
-  assert.deepEqual(news.results, []);
-  assert.deepEqual(news.noted, []);
-  assert.deepEqual(s.list('cam').map((c) => c.id), [2]);
+  assert.deepEqual(s.send(toCam).memo.choices, [], 'a memo with no choices has an empty list');
+  assert.deepEqual(s.send({ ...toCam, choices: ' push , draft,skip,push,' }).memo.choices, ['push', 'draft', 'skip']);
+  assert.deepEqual(s.send({ ...toCam, choices: ['send it', 'wait'] }).memo.choices, ['send it', 'wait']);
+  refuses(() => s.send({ ...toCam, choices: ['a,b'] }), 400, 'no comma');
+  refuses(() => s.send({ ...toCam, choices: ['x'.repeat(25)] }), 400, '24 characters');
+  refuses(() => s.send({ ...toCam, choices: 'a,b,c,d,e,f,g' }), 400, '6 choices');
+  refuses(() => s.send({ ...toCam, choices: 5 }), 400, 'choices');
+  refuses(() => s.send({ from: 'cam', to: 'main', text: 'x', choices: 'yes,no' }), 400, 'Only a memo to cam');
+  assert.equal(s.list('cam').length, 3, 'a refused send stores nothing');
 });
 
-test('compact refuses a memo with a note of the owner that is not read, and keeps the memo open', () => {
-  const s = makeStore();
-  s.send(toCam);
-  s.note(1, 'cam', COMPACT_NOTE);
-  s.note(1, 'cam', 'Also add the price.');
-  refuses(() => s.compact(1, 'main', { text: 'Short.' }), 409, 'not read');
-  assert.equal(s.get(1).state, 'open');
-  assert.equal(s.list('cam').length, 1, 'a refused compact sends nothing');
-  // The sender gets the note, answers it in the new text and acks it. Then the compact works.
-  s.news('main');
-  s.ack(1);
-  const { memo, old } = s.compact(1, 'main', { text: 'Short, with the price.' });
-  assert.equal(old.state, 'closed');
-  assert.equal(memo.id, 2);
-});
-
-test('compact takes a new title and next step, and an empty part removes it', () => {
-  const s = makeStore();
-  s.send({ ...toCam, title: 'Deploy', next: 'Reply yes' });
-  const { memo } = s.compact(1, 'main', { text: 'Short.', title: 'Deploy v2', next: '' });
-  assert.equal(memo.title, 'Deploy v2');
-  assert.equal(memo.next, null);
-});
-
-test('compact refuses a closed memo, a memo not to cam, a wrong sender, and no text', () => {
-  const s = makeStore();
-  s.send(toCam);
-  refuses(() => s.compact(1, 'liaison', { text: 'x' }), 403, 'main');
-  refuses(() => s.compact(1, 'cam', { text: 'x' }), 403, 'main');
-  refuses(() => s.compact(1, 'main', {}), 400, 'text');
-  refuses(() => s.compact(99, 'main', { text: 'x' }), 404, '99');
-  s.close(1);
-  refuses(() => s.compact(1, 'main', { text: 'x' }), 409, 'closed');
-  s.send({ from: 'cam', to: 'main', text: 'Update the README.' });
-  refuses(() => s.compact(2, 'cam', { text: 'x' }), 400, 'Only a memo to cam');
-  // A refused compact sends nothing.
-  assert.deepEqual(s.list('cam'), []);
+test('an old database gets the choices column, and its memos get no buttons', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'memo-db-')), 'memo.db');
+  const db = openDb(file);
+  db.exec('ALTER TABLE memos DROP COLUMN choices');
+  db.prepare("INSERT INTO memos (sender, recipient, text, created) VALUES ('main', 'cam', 'old', '2026-10-01T00:00:00Z')").run();
+  db.close();
+  const s = createStore(openDb(file), { owner: 'cam', names: NAMES });
+  assert.deepEqual(s.get(1).choices, []);
 });

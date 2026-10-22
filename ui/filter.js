@@ -7,13 +7,6 @@ export const isWork = (memo) => WORK.test(memo.text || '') || (memo.tags || []).
 // The tags that the Inbox suggests when the owner adds a tag. The owner can type any other tag.
 export const STARTER_TAGS = ['work', 'admin', 'health', 'money', 'home', 'code', 'social'];
 
-// The note of the Shorten button. The sender then closes the memo and sends a short new memo (memo compact).
-export const COMPACT_NOTE = 'Shorten this memo: close it and send a new memo with a short summary, the open items (with check boxes), and the next step. Keep the impact, the effort, and the tags. Use: memo compact <id>';
-// The memo has a Shorten note that the sender did not read yet: the button shows "Asked".
-export const compactAsked = (memo) => (memo.notes || []).some((n) => n.text === COMPACT_NOTE && !n.read);
-// The notes that the Inbox shows. The Shorten note is only a signal to the agent, so the Inbox hides it.
-export const shownNotes = (memo) => (memo.notes || []).filter((n) => n.text !== COMPACT_NOTE);
-
 // The filters of the top bar: 'all', 'work', 'personal' (not work), or 'tag:<name>'.
 export function matches(memo, filter) {
   if (filter === 'work') return isWork(memo);
@@ -79,6 +72,12 @@ export function nextMonday(date) {
   const day = new Date(`${date}T12:00:00Z`).getUTCDay(); // 0 Sunday ... 6 Saturday
   return addDays(date, ((8 - day) % 7) || 7);
 }
+// The same day one month later, or the last day of that month (Jan 31 gives Feb 28 or 29).
+export function inAMonth(date) {
+  const [y, m, d] = date.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); // the number of days of the next month
+  return new Date(Date.UTC(y, m, Math.min(d, last), 12)).toISOString().slice(0, 10);
+}
 // The warning for the picker: the memo is due before it comes back.
 export const dueWarning = (memo, date) => (memo.due && date && memo.due < date ? `This memo is due ${memo.due}, before it comes back.` : '');
 
@@ -93,3 +92,19 @@ export function cardIndex(memos, id, pos) {
 
 // The text of the progress line of the one-card view, for example "3 of 12".
 export const cardProgress = (at, total) => `${Math.min(at + 1, total)} of ${total}`;
+
+// A memo with no change (send, note, edit, or return from a postpone) for this many days goes into the fold at the
+// bottom of the Inbox. The server gives `updated`; a memo without it uses its send time.
+export const OLD_DAYS = 5;
+export function isOld(memo, now = Date.now()) {
+  const at = Date.parse(memo.updated || memo.created || '');
+  return Number.isFinite(at) && now - at >= OLD_DAYS * 86400000;
+}
+// The list of the Inbox in two parts: the memos with a recent change, and the old memos of the fold. Each part
+// keeps the order of the list.
+export function splitOld(memos, now = Date.now()) {
+  const fresh = [];
+  const old = [];
+  for (const m of memos) (isOld(m, now) ? old : fresh).push(m);
+  return { fresh, old };
+}

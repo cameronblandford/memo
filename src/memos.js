@@ -1,7 +1,6 @@
 import { EFFORTS, sortQueue, updatedTime } from './rank.js';
 import { setCheckBox, summary } from '../ui/markdown.js';
 import { createEvents } from './events.js';
-import { COMPACT_NOTE } from '../ui/filter.js';
 
 export class MemoError extends Error {
   constructor(status, message) {
@@ -12,7 +11,7 @@ export class MemoError extends Error {
 
 const MAX_TEXT = 20000;
 const MAX_NOTE = 4000;
-// The brief of a memo is one short line for each part, so the compact view of the Inbox fits a phone.
+// The brief of a memo is one short line for each part, so the card of the Inbox fits a phone.
 const MAX_TITLE = 60;
 const MAX_NEXT = 100;
 // The Chat page shows this many memos at most.
@@ -21,6 +20,9 @@ const MAX_THREAD = 500;
 // A tag is a short lowercase word, for example work, money, or home-repair. A memo has 8 tags or fewer.
 const TAG = /^[a-z][a-z0-9-]{0,23}$/;
 const MAX_TAGS = 8;
+// An answer button is a short word or phrase with no comma. A memo has 6 buttons or fewer.
+const MAX_CHOICE = 24;
+const MAX_CHOICES = 6;
 export const POSTPONE_HOUR = 9;
 
 // The time (ISO, UTC) of 9:00 on the date YYYY-MM-DD in the time zone. A postponed memo comes back then.
@@ -100,12 +102,26 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return tags;
   }
 
+  // The answer buttons from a request: a list, or one text with commas ('push,draft,skip'). Gives the clean list in
+  // the order of the sender, with no duplicates.
+  function checkChoices(v) {
+    if (v === undefined || v === null || v === '') return [];
+    const raw = Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : null;
+    if (!raw || raw.some((c) => typeof c !== 'string')) throw new MemoError(400, 'choices must be a list of words, or one text with commas.');
+    const list = [...new Set(raw.map((c) => c.trim()).filter(Boolean))];
+    for (const c of list) {
+      if (c.length > MAX_CHOICE || /[,\r\n]/.test(c)) throw new MemoError(400, `A choice must be one line of ${MAX_CHOICE} characters or fewer, with no comma.`);
+    }
+    if (list.length > MAX_CHOICES) throw new MemoError(400, `A memo can have ${MAX_CHOICES} choices or fewer.`);
+    return list;
+  }
+
   // The notes of a memo, oldest first. A memo with no notes has no `notes` field, so an old client sees no change.
-  // The tags column is text in the database and a list in each answer.
+  // The tags and choices columns are text in the database and lists in each answer.
   const notesOf = (id) => db.prepare('SELECT id, author, text, created, read FROM notes WHERE memo_id = ? ORDER BY id').all(id).map(plain);
   function withNotes(row) {
     const notes = notesOf(row.id);
-    const memo = { ...row, tags: row.tags ? row.tags.split(',') : [] };
+    const memo = { ...row, tags: row.tags ? row.tags.split(',') : [], choices: row.choices ? row.choices.split(',') : [] };
     return notes.length ? { ...memo, notes } : memo;
   }
 
@@ -130,7 +146,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     ).all(sender).map(plain);
   }
 
-  function send({ from, to, text, impact, effort, due, trusted, tags, title, next } = {}) {
+  function send({ from, to, text, impact, effort, due, trusted, tags, title, next, choices } = {}) {
     checkParty('from', from, names);
     checkParty('to', to, names.filter((n) => n !== 'discord'));
     const body = checkText('text', text);
@@ -149,10 +165,12 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     const t = checkTags(tags);
     const name = checkLine('title', title, MAX_TITLE);
     const step = checkLine('next', next, MAX_NEXT);
+    const ask = checkChoices(choices);
+    if (ask.length && to !== owner) throw new MemoError(400, `Only a memo to ${owner} can have choices.`);
     const r = db.prepare(
       // seen is 0 here and not from the column default: an older database has the default 1 for its old memos.
-      'INSERT INTO memos (sender, recipient, text, impact, effort, due, trusted, created, seen, tags, title, next) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)',
-    ).run(from, to, body, impact, effort, d, trusted ? 1 : 0, ts(), t.join(','), name, step);
+      'INSERT INTO memos (sender, recipient, text, impact, effort, due, trusted, created, seen, tags, title, next, choices) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)',
+    ).run(from, to, body, impact, effort, d, trusted ? 1 : 0, ts(), t.join(','), name, step, ask.join(','));
     const id = Number(r.lastInsertRowid);
     log(from, id, 'send', `to ${to}: ${name || body}`);
     return { memo: get(id), corrections: to === owner ? corrections(from) : [] };
@@ -215,30 +233,6 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     if (from !== owner) db.prepare('UPDATE memos SET seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?').run(c.id);
     log(from, c.id, 'note', body);
     return get(c.id);
-  }
-  // The sender makes a short new memo from an open memo to the owner, when the owner asks for it (the Compact button).
-  // The new memo has the new text and the impact, effort, due date, and tags of the old one. It shows as new.
-  // The old memo closes with a link to the new one. It is acked, so the sender gets no result for it.
-  // A note of the owner that the sender did not read (other than the Shorten request) would be lost in the closed
-  // memo, so compact is refused until the sender reads it (memo wait), answers it, or acks it.
-  function compact(id, from, { text, title, next } = {}) {
-    const c = getOpen(id);
-    if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} can be compacted.`);
-    if (from === owner || from !== c.sender) throw new MemoError(403, `Only ${c.sender} can compact memo ${c.id}.`);
-    const unread = (c.notes || []).filter((n) => n.author === owner && !n.read && n.text !== COMPACT_NOTE);
-    if (unread.length) {
-      throw new MemoError(409, `Memo ${c.id} has ${unread.length} note(s) of ${owner} that are not read. Compact would lose them. `
-        + `Run memo wait to get them, answer them (memo note or memo edit) or run memo ack ${c.id}, then compact again.`);
-    }
-    const { memo } = send({
-      from, to: owner, text, impact: c.impact, effort: c.effort, due: c.due, tags: c.tags,
-      title: title === undefined ? c.title : title, next: next === undefined ? c.next : next,
-    });
-    db.prepare(`UPDATE memos SET reply = ?, state = 'closed', closed = ?, acked = 1 WHERE id = ?`).run(`Compacted into memo #${memo.id}.`, ts(), c.id);
-    // Only the Shorten request can be unread here. The compact answers it.
-    db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ?').run(c.id, owner);
-    log(from, c.id, 'compact', `into #${memo.id}`);
-    return { memo, old: get(c.id) };
   }
   const unreadFromOwner = (id) => db.prepare('SELECT COUNT(*) AS n FROM notes WHERE memo_id = ? AND author = ? AND read = 0').get(id, owner).n;
 
@@ -476,5 +470,5 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     };
   }
 
-  return { get, send, reply, close, edit, brief, note, compact, seen, check, adjust, ack, forward, tag, postpone, postponed, list, thread, news, delivered, inflight, events, corrections, counts, timeZone };
+  return { get, send, reply, close, edit, brief, note, seen, check, adjust, ack, forward, tag, postpone, postponed, list, thread, news, delivered, inflight, events, corrections, counts, timeZone };
 }

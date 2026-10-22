@@ -88,9 +88,13 @@ A memo with a tag that is not on the screen gets a toast in the corner of the pa
 
 A list item that starts with `[ ]` or `[x]` (for example `- [ ] Rain jacket`) shows as a check box. The owner can tick it on the Inbox page. The server saves the state in the text of the memo, so it is the same on each device, and the agent sees it when it reads the memo.
 
-The button "Note" sends the text of the reply field to the sender of the memo, and the memo stays open in the Inbox with its place in the queue. Use it to ask for a change or for more data. The notes show below the memo text, with the answers of the agent. `memo wait` gives the agent each memo with a note that it did not read. The agent answers with `memo note <id> --from <name> "<text>"`, changes the memo with `memo edit`, or runs `memo ack <id>` when no answer is necessary. A note, an edit, or an ack of the agent marks as read only the notes of the owner that `memo wait` or `memo list` gave to the agent; a later note stays unread and comes in the next `memo wait`. `memo compact` is refused while the memo has a note of the owner that is not read (other than the Shorten request). "Reply" and "Close" end the memo as before.
+The button "Note" sends the text of the reply field to the sender of the memo, and the memo stays open in the Inbox with its place in the queue. Use it to ask for a change or for more data. The notes show under "Details", below the memo text, with the answers of the agent. `memo wait` gives the agent each memo with a note that it did not read. The agent answers with `memo note <id> --from <name> "<text>"`, changes the memo with `memo edit`, or runs `memo ack <id>` when no answer is necessary. A note, an edit, or an ack of the agent marks as read only the notes of the owner that `memo wait` or `memo list` gave to the agent; a later note stays unread and comes in the next `memo wait`. "Reply" and "Close" end the memo as before.
 
-The button "Shorten" is on each memo from an agent. It adds a fixed note that asks the agent to make the memo short. The Inbox does not show this note; the button shows "Asked" instead. The agent runs `memo compact <id> --from <name> -- "<new text>"`: the server closes the memo ("Compacted into memo #<new id>.") and sends a new memo with the new text and the impact, effort, due date, tags, and brief of the old memo. The new text has a short summary, the open items as check boxes, and the next step. The button shows "Asked" until the agent reads the note.
+Each memo is one card: the title and the next step of the brief (`memo send --title --next`, or `memo brief`), the buttons, and "Details", which opens the full text and the notes (a tap, or the key o). A memo with no title shows the first line of its text.
+
+A memo can have answer buttons: `memo send ... --choices "push,draft,skip"` (6 or fewer, each 24 characters or fewer, no comma). The Inbox shows one button for each word, in the list and in the one-card view. A tap replies with that word, as "Reply" does. The reply field stays for a longer answer.
+
+A memo with no change for 5 days (no send, note, edit, or return from a postpone) goes into the folded section "Older than 5 days (n)" at the bottom of the list. Its "Close all" button asks first, in the page, and then closes each memo in the section with no text. "Postpone" brings a memo back at 9:00 on a day: Tomorrow, Next week (the next Monday), In a month, or a date.
 
 The buttons "More" and "Less" change the impact of a memo by 1. The server records each change. When an agent sends its next memo, `memo` shows the agent the last 5 changes.
 
@@ -186,7 +190,7 @@ The agent only asks. On "Approve rule", the server adds the rule to `permissions
 Open `http://127.0.0.1:3280/log`. It shows what is on its way to each agent, and what happened to each memo.
 
 - "In flight": for each agent, its open memos, the answers that it did not ack, and the notes of the owner that it did not read. Each line tells if `memo wait` or `memo list` delivered the memo after its last change, or if `memo wait --hold` holds it. The first line of the agent tells when its `memo wait` asked last.
-- "Events": the steps of the memos (send, delivered, seen, note, edit, brief, reply, close, ack, compact, postpone, forward) and the status lines, newest first. Filter by agent or by memo id; `/log?memo=42` shows one memo.
+- "Events": the steps of the memos (send, delivered, seen, note, edit, brief, reply, close, ack, postpone, forward) and the status lines, newest first. Filter by agent or by memo id; `/log?memo=42` shows one memo.
 - The server writes the events to the table `events`. The table is append-only. An event has the title or the first 80 characters of a text, never the full text.
 
 ## The Chat page
@@ -242,7 +246,7 @@ scripts/memo reply 12 "Yes."
 scripts/memo close 12 "Done."
 scripts/memo edit 12 "A new text for an open memo."
 scripts/memo note 12 --from main "The price is $14 each month."
-scripts/memo compact 12 --from main -- "- [ ] Pay the invoice. Next: approve the quote."
+scripts/memo send --from main --to owner --impact 3 --effort micro --choices "push,draft,skip" "Push the branch?"
 scripts/memo ack 12
 scripts/memo status --as main "I update the README of the website."
 scripts/memo recap --as main "The README is complete. Next: the tests."

@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/ui/common.css">
 </head>
 <body>
-<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><select id="sort" aria-label="Order" title="The order of the memos: Rank (due soon, then impact per effort) or Recently updated (the newest send, note, edit, or return from a postpone first)"><option value="rank">Rank</option><option value="updated">Recently updated</option></select><button id="compact" type="button" aria-pressed="false" title="Collapse all memos to their name and next step. A click on a memo opens it. A click here when all are collapsed shows all memos in full. Key: c">Collapse</button><span id="view" role="group" aria-label="View"><button type="button" data-view="list" aria-pressed="true" title="All memos in a list">List</button><button type="button" data-view="card" aria-pressed="false" title="One memo at a time, in the order and with the filter of the list. Swipe or use the arrow keys to go to the next or the previous memo">One card</button></span><a href="/chat">Chat</a><a href="/agents">Agents</a><a href="/log">Log</a></header>
+<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><select id="sort" aria-label="Order" title="The order of the memos: Rank (due soon, then impact per effort) or Recently updated (the newest send, note, edit, or return from a postpone first)"><option value="rank">Rank</option><option value="updated">Recently updated</option></select><span id="view" role="group" aria-label="View"><button type="button" data-view="list" aria-pressed="true" title="All memos in a list">List</button><button type="button" data-view="card" aria-pressed="false" title="One memo at a time, in the order and with the filter of the list. Swipe or use the arrow keys to go to the next or the previous memo">One card</button></span><a href="/chat">Chat</a><a href="/agents">Agents</a><a href="/log">Log</a></header>
 <form id="token-form" hidden>
   <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
   <button>Save</button>
@@ -30,7 +30,7 @@
   <div id="sent" role="status" aria-live="polite"></div>
   <div id="work"></div>
 </div>
-<footer>Keys: j and k select a memo. In the one-card view, the left and right arrows (or j and k) go to the previous and the next card, and a swipe does the same; nothing changes until you use a button. c collapses all memos (or shows them in full), and o opens or closes the selected memo in it. + and - change the impact. w shows the work memos or all memos. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
+<footer>Keys: j and k select a memo. In the one-card view, the left and right arrows (or j and k) go to the previous and the next card, and a swipe does the same; nothing changes until you use a button. o opens or closes the Details (the full text) of the selected memo. + and - change the impact. w shows the work memos or all memos. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
@@ -38,7 +38,7 @@ import { enterSends, fieldHeight } from '/ui/keys.js';
 import { withFeedback } from '/ui/feedback.js';
 import { workSigns, signText } from '/ui/working.js';
 import { parseRule, withoutMarker } from '/ui/rule.js';
-import { shownMemos, sortedMemos, sortChoice, step, countText, filterChoices, tagSuggestions, todayIn, addDays, nextMonday, dueWarning, COMPACT_NOTE, compactAsked, shownNotes, cardIndex, cardProgress } from '/ui/filter.js';
+import { shownMemos, sortedMemos, sortChoice, step, countText, filterChoices, tagSuggestions, todayIn, addDays, nextMonday, inAMonth, dueWarning, cardIndex, cardProgress, splitOld, isOld, OLD_DAYS } from '/ui/filter.js';
 import { swipeStep } from '/ui/lightbox.js';
 
 const queue = document.getElementById('queue');
@@ -56,69 +56,39 @@ function select(id) {
   for (const node of queue.children) node.classList.toggle('selected', Number(node.dataset.id) === id);
 }
 
-// The compact view: each memo is one short block with its name and the next step of the owner. The sender writes
-// the brief (memo send --title --next, or memo brief). A memo with no brief shows the first line of its text.
-// A click opens the full memo at its place. The open memos stay open until the page loads again.
-const COMPACT_KEY = 'memo-compact';
-let compact = false;
-try { compact = localStorage.getItem(COMPACT_KEY) === '1'; } catch { /* a private window: the full view */ }
-const opened = new Set(); // ids of the memos that the owner opened in the compact view
-const compactButton = document.getElementById('compact');
-function setCompact(on) {
-  compact = on;
-  try { localStorage.setItem(COMPACT_KEY, on ? '1' : '0'); } catch { /* the choice stays in memory */ }
-  render();
-  nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+// The card of a memo shows its name, the next step, and the buttons. The full text and the notes open under
+// "Details" (a tap, or the key o for the selected memo). An open Details stays open while the page is loaded, also
+// when a new list comes.
+const openDetails = new Set(); // ids of the memos whose Details are open
+function detailsOf(memo, asked) {
+  const notes = (memo.notes || []).length;
+  const box = el('details', { className: 'details', open: openDetails.has(memo.id) },
+    el('summary', {}, 'Details', notes ? ` · ${notes} ${notes === 1 ? 'note' : 'notes'}` : ''),
+    bodyOf(memo, asked),
+    notesOf(memo));
+  box.addEventListener('toggle', () => { if (box.open) openDetails.add(memo.id); else openDetails.delete(memo.id); });
+  return box;
 }
-// The button always collapses all memos, also the memos that the owner opened. When all memos on the screen are
-// already collapsed, it shows all memos in full, so that the full view stays one click away on a phone.
-// The test reads the screen, not the opened ids: an opened memo that left the list (reply, close, filter) keeps its id.
-function collapseAll() {
-  if (compact && !queue.querySelector('.memo:not(.brief)')) return setCompact(false);
-  opened.clear();
-  setCompact(true);
+function toggleDetails(id) {
+  const box = nodeOf(id)?.querySelector('details.details');
+  if (box) box.open = !box.open;
 }
-compactButton.addEventListener('click', () => { collapseAll(); compactButton.blur(); });
-function toggleOpen(id) {
-  if (opened.has(id)) opened.delete(id); else opened.add(id);
-  const memo = memos.find((m) => m.id === id);
-  const old = nodeOf(id);
-  if (!memo || !old) return;
-  const node = view(memo);
-  // A seen timer of the old node stops: after a collapse, only the brief is on the screen.
-  watch.unobserve(old);
-  clearTimeout(waiting.get(id));
-  waiting.delete(id);
-  old.replaceWith(node);
-  loadImages(node);
-  select(id);
-  node.scrollIntoView({ behavior: 'instant', block: 'nearest' });
-}
+
 // In the Recently updated order, a memo that changed after its send shows the time of that change too.
 const changedAt = (memo) => (sort === 'updated' && memo.updated && memo.updated !== memo.created ? ` · updated ${age(memo.updated)}` : '');
 const factsOf = (memo) => ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}${changedAt(memo)}`;
 // The number of the memo, small and dim at the end of the meta line, so the owner can name the memo in a chat.
 const numberOf = (memo) => el('span', { className: 'num' }, `#${memo.id}`);
 const newTag = (memo) => (memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'));
-function briefView(memo) {
-  const notes = shownNotes(memo).length;
-  const node = el('article', { className: memo.id === selected ? 'memo brief selected' : 'memo brief', title: 'Open this memo' },
-    el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), factsOf(memo),
-      notes ? ` · ${notes} ${notes === 1 ? 'note' : 'notes'}` : '', numberOf(memo), newTag(memo)),
-    el('div', { className: 'name' }, memo.title || summary(memo.text) || `Memo ${memo.id}`),
-    memo.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), memo.next) : '');
-  node.dataset.id = memo.id;
-  node.tabIndex = 0;
-  node.setAttribute('role', 'button');
-  node.setAttribute('aria-expanded', 'false');
-  node.addEventListener('click', () => toggleOpen(memo.id));
-  node.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleOpen(memo.id); } });
-  return node;
-}
+const titleOf = (memo) => memo.title || summary(memo.text) || `Memo ${memo.id}`;
+const nextOf = (memo) => (memo.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), memo.next) : '');
+// The answer buttons that the sender gave (memo send --choices). A tap replies with that word, like Reply.
+// onDone: as for reply.
+const choicesOf = (memo, onDone) => (memo.choices?.length ? el('div', { className: 'choices', role: 'group', ariaLabel: 'Answers' },
+  ...memo.choices.map((word) => button(word, (b) => send(b, async () => { await api('/api/reply', { id: memo.id, text: word }); drafts.delete(memo.id); onDone?.(); }, `Replied "${word}" to ${memo.sender}`),
+    `Reply "${word}" to ${memo.sender}. The memo leaves your Inbox.`))) : '');
 
 function view(memo) {
-  // In the compact view, a memo that is not open is only its brief. The brief does not count as seen.
-  if (compact && !opened.has(memo.id)) return briefView(memo);
   const area = el('textarea', { rows: 2, placeholder: 'Reply', value: drafts.get(memo.id) || '' });
   area.setAttribute('aria-label', `Reply to memo ${memo.id}`);
   area.addEventListener('input', () => drafts.set(memo.id, area.value));
@@ -142,7 +112,9 @@ function view(memo) {
   const laterPanel = postponePicker(memo);
   const toggle = (panel, other) => { other.hidden = true; panel.hidden = !panel.hidden; if (!panel.hidden) panel.querySelector('input, button')?.focus(); };
   const node = el('article', { className: memo.id === selected ? 'memo selected' : 'memo' },
-    el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), facts, numberOf(memo), tag),
+    el('div', { className: 'meta' }, numberOf(memo), tag, el('span', { className: 'sender' }, memo.sender), facts),
+    el('div', { className: 'name' }, titleOf(memo)),
+    nextOf(memo),
     el('div', { className: 'chips' },
       ...memo.tags.map((t) => {
         const remove = button('×', () => setTag(memo, t, false), `Remove the tag ${t}`);
@@ -150,14 +122,12 @@ function view(memo) {
         return el('span', { className: 'chip' }, `#${t}`, remove);
       }),
       button('+ tag', () => toggle(tagPanel, laterPanel), 'Add a tag to this memo'),
-      button('Postpone', () => toggle(laterPanel, tagPanel), 'Take this memo out of the Inbox until a date'),
-      ...(canCompact(memo) ? [compactButtonOf(memo)] : []),
-      ...(compact ? [button('Collapse', () => toggleOpen(memo.id), 'Show only the name and the next step of this memo')] : [])),
+      button('Postpone', () => toggle(laterPanel, tagPanel), 'Take this memo out of the Inbox until a date')),
     tagPanel,
     laterPanel,
-    bodyOf(memo, asked),
     asked ? ruleBox(memo, asked) : '',
-    notesOf(memo),
+    choicesOf(memo),
+    detailsOf(memo, asked),
     // The buttons that send are off while an image goes to the server.
     attach(area, thumbs, (busy) => { for (const b of sendButtons) b.disabled = busy; }),
     thumbs,
@@ -175,7 +145,7 @@ function view(memo) {
 // The text of a memo, with its check boxes and images. A memo that quotes Discord text gets no frame.
 const bodyOf = (memo, asked) => el('div', { className: 'md' }, ...markdown(asked ? withoutMarker(memo.text) : memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: (n, on, box) => check(memo.id, n, on, box) }));
 // The notes of the memo: messages between the owner and the sender while the memo is open.
-const notesOf = (memo) => (shownNotes(memo).length ? el('div', { className: 'notes' }, ...shownNotes(memo).map((n) => el('div', { className: 'note' },
+const notesOf = (memo) => (memo.notes?.length ? el('div', { className: 'notes' }, ...memo.notes.map((n) => el('div', { className: 'note' },
   el('div', { className: 'who' }, el('b', {}, n.author), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
   el('div', { className: 'md' }, ...markdown(n.text, el))))) : '');
 const noNotes = (memo) => ['liaison', 'discord'].includes(memo.sender);
@@ -192,19 +162,6 @@ function ruleBox(memo, asked) {
     el('div', { className: 'who' }, 'Permission rule for ', el('b', {}, asked.agent)),
     el('pre', {}, el('code', {}, asked.rule)),
     el('div', { className: 'row' }, approve, problem ? el('span', { className: 'dim' }, problem) : ''));
-}
-
-// The Shorten button asks the sender, with a fixed note, to close the memo and send a short new memo:
-// a summary, the open items, and the next step. Only for a memo from an agent that reads notes.
-const canCompact = (memo) => !['__OWNER__', 'liaison', 'discord'].includes(memo.sender);
-function compactButtonOf(memo) {
-  if (compactAsked(memo)) {
-    const asked = button('Asked', () => {}, 'The agent has the request to compact this memo');
-    asked.disabled = true;
-    return asked;
-  }
-  return button('Shorten', (b) => send(b, () => api('/api/note', { id: memo.id, from: '__OWNER__', text: COMPACT_NOTE })),
-    'Ask the agent to close this memo and send a short new memo: a summary, the open items, and the next step');
 }
 
 // The field to add a tag, with the starter tags and the tags in use as suggestions. Return adds, Escape closes.
@@ -227,7 +184,7 @@ async function setTag(memo, name, on) {
   await run(() => api('/api/tag', { id: memo.id, tag, on }));
 }
 
-// The postpone choices: tomorrow, next Monday, or a date. The memo comes back at 9:00 on that day.
+// The postpone choices: tomorrow, next Monday, the same day next month, or a date. The memo comes back at 9:00 on that day.
 // onDone: runs after the server postponed the memo, before the new list (the one-card view counts it).
 function postponePicker(memo, onDone) {
   const today = todayIn(zone);
@@ -245,6 +202,7 @@ function postponePicker(memo, onDone) {
   const panel = el('div', { className: 'panel', hidden: true },
     choice('Tomorrow', addDays(today, 1)),
     choice('Next week', nextMonday(today)),
+    choice('In a month', inAMonth(today)),
     el('span', { className: 'pick' }, picked, button('Postpone', () => later(memo, picked.value, onDone), 'Back on this date at 9:00')),
     warn);
   return panel;
@@ -297,8 +255,7 @@ const watch = new IntersectionObserver((entries) => {
 document.addEventListener('visibilitychange', () => {
   // A memo that was on the screen while the page was hidden gets a new check.
   if (document.visibilityState !== 'visible') return;
-  // A brief of the compact view is not the full memo, so it does not count as seen.
-  for (const node of queue.querySelectorAll('.memo:not(.brief)')) if (node.querySelector('.tag')) { watch.unobserve(node); watch.observe(node); }
+  for (const node of queue.querySelectorAll('.memo')) if (node.querySelector('.tag')) { watch.unobserve(node); watch.observe(node); }
 });
 async function markSeen(id) {
   try {
@@ -330,6 +287,8 @@ function onScreen(node) {
 function goTo(id) {
   // A toast can be for a memo that the filter hides.
   if (!nodeOf(id) && filter !== 'all' && memos.some((c) => c.id === id)) setFilter('all');
+  // A memo in the closed fold has a node, but no place on the screen.
+  if (!foldOpen && memos.some((c) => c.id === id && isOld(c))) { foldOpen = true; render(); }
   const node = nodeOf(id);
   if (!node) return;
   select(id);
@@ -352,7 +311,7 @@ function showToasts() {
       node = el('div', { className: 'toast', title: 'Go to this memo' },
         el('div', { className: 'body' },
           el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'), el('span', { className: 'sender' }, memo.sender),
-          el('div', { className: 'line' }, summary(memo.text) || `Memo ${memo.id}`)),
+          el('div', { className: 'line' }, titleOf(memo))),
         button('×', () => { closed.add(key); showToasts(); }, 'Close this toast'));
       node.addEventListener('click', () => goTo(memo.id));
       toastNodes.set(key, node);
@@ -400,7 +359,8 @@ const FILTER_KEY = 'memo-filter';
 const filterMenu = document.getElementById('filter');
 let filter = 'all';
 try { filter = localStorage.getItem(FILTER_KEY) || (localStorage.getItem('memo-work-only') === '1' ? 'work' : 'all'); } catch { /* a private window: All */ }
-const shown = () => sortedMemos(shownMemos(memos, filter), sort);
+// The memos of the list in their order: the memos with a recent change, then the old memos of the fold.
+const shown = () => { const { fresh, old } = splitOld(sortedMemos(shownMemos(memos, filter), sort)); return [...fresh, ...old]; };
 function setFilter(next) {
   filter = next;
   try { localStorage.setItem(FILTER_KEY, next); } catch { /* a private window: the choice stays in memory */ }
@@ -425,7 +385,7 @@ sortMenu.addEventListener('change', () => { setSort(sortMenu.value); sortMenu.bl
 
 // The one-card view: one memo at a time, in the order and with the filter of the list. A swipe, the arrow keys,
 // Skip, and Back only go to another card: they change nothing. Reply, Close, and Later are buttons, so a slip of
-// the finger cannot answer, close, or postpone a memo. The device keeps the choice, like the compact choice.
+// the finger cannot answer, close, or postpone a memo. The device keeps the choice, like the filter.
 const VIEW_KEY = 'memo-view';
 let oneCard = false;
 try { oneCard = localStorage.getItem(VIEW_KEY) === 'card'; } catch { /* a private window: the list */ }
@@ -436,7 +396,6 @@ let cardEnter = ''; // 'next' or 'prev': the side that the new card comes in fro
 let replyOpen = null; // the memo whose reply box is open, so that a refresh keeps it open
 const handled = []; // { id, title, what }: the memos that the owner answered in this view, for the summary
 let lastLater = null; // { id, title }: the memo that Later took out last, for Undo
-const titleOf = (memo) => memo.title || summary(memo.text) || `Memo ${memo.id}`;
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 function setView(card) {
   oneCard = card;
@@ -541,12 +500,12 @@ function cardView(memo, list, at) {
   const card = el('article', { className: `memo card${cardEnter && !reducedMotion() ? ` enter-${cardEnter}` : ''}` },
     el('span', { className: 'swipe-hint back', ariaHidden: 'true' }, '‹ Back'),
     el('span', { className: 'swipe-hint next', ariaHidden: 'true' }, 'Next ›'),
-    el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), factsOf(memo), numberOf(memo), tag),
+    el('div', { className: 'meta' }, numberOf(memo), tag, el('span', { className: 'sender' }, memo.sender), factsOf(memo)),
     el('h2', { className: 'card-title' }, titleOf(memo)),
-    memo.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), memo.next) : '',
-    bodyOf(memo, asked),
+    nextOf(memo),
     asked ? ruleBox(memo, asked) : '',
-    notesOf(memo),
+    choicesOf(memo, done('Replied')),
+    detailsOf(memo, asked),
     replyBox,
     laterPanel);
   card.dataset.id = memo.id;
@@ -614,6 +573,34 @@ function deckView(list) {
   return deck;
 }
 
+// The fold at the bottom of the list: the memos with no change for OLD_DAYS days. It is closed at each load of the
+// page. Close all asks first, in the page, and then closes each old memo with no text.
+let foldOpen = false;
+let foldAsk = false; // the Close all question shows
+function foldView(old) {
+  const n = old.length;
+  const toggle = button(`Older than ${OLD_DAYS} days (${n})`, () => { foldOpen = !foldOpen; render(); },
+    `Memos with no send, note, edit, or return from a postpone in the last ${OLD_DAYS} days`);
+  toggle.className = 'fold-toggle';
+  toggle.setAttribute('aria-expanded', String(foldOpen));
+  const ask = foldAsk
+    ? el('div', { className: 'fold-ask', role: 'group', ariaLabel: 'Close all old memos?' },
+      el('span', {}, `Close all ${n} old ${n === 1 ? 'memo' : 'memos'}? Each sender gets "closed".`),
+      button('Yes, close all', (b) => closeAll(old.map((m) => m.id), b), `Close the ${n} memos in this section`),
+      button('Cancel', () => { foldAsk = false; render(); queue.querySelector('.fold-close')?.focus(); }, 'Keep the memos'))
+    : button('Close all', () => { foldAsk = true; render(); queue.querySelector('.fold-ask button')?.focus(); }, `Close the ${n} old memos. The page asks first`);
+  if (!foldAsk) ask.className = 'fold-close';
+  return el('section', { className: 'fold' }, el('div', { className: 'fold-head' }, toggle, ask), ...(foldOpen ? old.map(view) : []));
+}
+// A memo that someone closed in the meantime is no error here.
+const closeAll = (ids, b) => send(b, async () => {
+  for (const id of ids) {
+    try { await api('/api/close', { id }); } catch (error) { if (!/is (closed|replied)/.test(error.message)) throw error; }
+    drafts.delete(id);
+  }
+  foldAsk = false;
+}, `Closed ${ids.length} old ${ids.length === 1 ? 'memo' : 'memos'}`);
+
 function render() {
   const list = shown();
   const filtered = filter !== 'all';
@@ -627,20 +614,24 @@ function render() {
   const focusKey = document.activeElement?.dataset?.deck;
   queue.classList.toggle('one-card', oneCard);
   if (oneCard) queue.replaceChildren(...(list.length || handled.length ? [deckView(list)] : []));
-  else queue.replaceChildren(...list.map(view));
+  else {
+    const { fresh, old } = splitOld(list);
+    queue.replaceChildren(...fresh.map(view), ...(old.length ? [foldView(old)] : []));
+  }
   if (oneCard && focusKey) (queue.querySelector(`[data-deck="${focusKey}"]:not(:disabled)`) || queue.querySelector('[data-deck="skip"], [data-deck="again"]'))?.focus({ preventScroll: true });
   const first = queue.firstChild;
-  for (const tick of rows) queue.insertBefore(tickView(tick), sort === 'updated' ? first : tick.before === null ? null : nodeOf(tick.before) || null);
+  // A tick goes before its memo; a tick at the end, or before a memo of the fold, goes before the fold.
+  const fold = queue.querySelector(':scope > .fold');
+  for (const tick of rows) {
+    const at = tick.before === null ? null : nodeOf(tick.before);
+    queue.insertBefore(tickView(tick), sort === 'updated' ? first : at?.parentNode === queue ? at : fold);
+  }
   loadImages(queue);
   filterMenu.replaceChildren(...filterChoices(memos, filter).map(([value, label]) => el('option', { value, selected: value === filter }, label)));
   filterMenu.classList.toggle('on', filtered);
   sortMenu.value = sort;
   sortMenu.classList.toggle('on', sort !== 'rank');
-  compactButton.classList.toggle('on', compact);
-  // Collapse is for the list. The one-card view always shows the full memo.
-  compactButton.hidden = oneCard;
   for (const b of viewButtons) b.setAttribute('aria-pressed', String((b.dataset.view === 'card') === oneCard));
-  compactButton.setAttribute('aria-pressed', String(compact));
   document.getElementById('count').textContent = countText(list.length, memos.length, filtered);
   const empty = document.getElementById('empty');
   empty.textContent = filtered ? 'No memos with this filter need you now.' : 'No memos need you now.';
@@ -785,10 +776,11 @@ document.addEventListener('keydown', (event) => {
     if (cardId === null) return;
     if (event.key === '+' || event.key === '=') adjust(cardId, 1);
     else if (event.key === '-') adjust(cardId, -1);
+    else if (event.key === 'o') toggleDetails(cardId);
     return;
   }
-  if (event.key === 'c') return collapseAll();
-  const list = shown();
+  // The keys move through the memos that the list shows: the old memos only while the fold is open.
+  const list = shown().filter((m) => foldOpen || !isOld(m));
   if (!list.length) return;
   if (event.key === 'j' || event.key === 'k') {
     // The keys move through the memos that the list shows. The page follows the selection with no animation.
@@ -796,7 +788,7 @@ document.addEventListener('keydown', (event) => {
     nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
   } else if (event.key === '+' || event.key === '=') adjust(selected, 1);
   else if (event.key === '-') adjust(selected, -1);
-  else if (event.key === 'o' && compact) toggleOpen(selected);
+  else if (event.key === 'o') toggleDetails(selected);
 });
 
 tokenForm(() => { load(); loadAgents(); });
