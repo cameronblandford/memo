@@ -282,6 +282,15 @@ test('the selection marks a card in the fold too, and j and k go into the fold o
   assert.match(page, /const list = shown\(\)\.filter\(\(m\) => foldOpen \|\| !isOld\(m\)\);\n  if \(!list\.length\) return;\n  if \(event\.key === 'j' \|\| event\.key === 'k'\) \{/);
 });
 
+test('back from the one-card view, the list keeps the memo of the card, and opens the fold for an old memo', async () => {
+  const page = (await get('/inbox')).text;
+  const setView = page.slice(page.indexOf('function setView(card) {'), page.indexOf('\n}\n', page.indexOf('function setView(card) {')));
+  assert.match(setView, /selected = cardId;\n[^\n]*\n    if \(memos\.some\(\(m\) => m\.id === cardId && isOld\(m\)\)\) foldOpen = true;/);
+  // The fold opens before render, so render does not move the selection away from the old memo.
+  assert.ok(setView.indexOf('foldOpen = true') < setView.indexOf('render()'));
+  assert.match(setView, /if \(!card\) nodeOf\(selected\)\?\.scrollIntoView/);
+});
+
 test('the postpone picker has Tomorrow, Next week, and In a month', async () => {
   const { inAMonth } = await import('../ui/filter.js');
   assert.equal(inAMonth('2026-10-22'), '2026-11-22');

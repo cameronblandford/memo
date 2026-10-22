@@ -402,7 +402,11 @@ function setView(card) {
   oneCard = card;
   try { localStorage.setItem(VIEW_KEY, card ? 'card' : 'list'); } catch { /* the choice stays in memory */ }
   // The cards start at the memo that the list had selected; the list comes back with the memo of the card selected.
-  if (card) { cardId = selected; cardPos = 0; cardEnter = ''; } else if (cardId !== null) selected = cardId;
+  if (card) { cardId = selected; cardPos = 0; cardEnter = ''; } else if (cardId !== null) {
+    selected = cardId;
+    // The memo of the card is in the fold: the fold opens, as for a toast, so the list keeps that memo.
+    if (memos.some((m) => m.id === cardId && isOld(m))) foldOpen = true;
+  }
   render();
   if (!card) nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
 }
