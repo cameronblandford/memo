@@ -99,7 +99,8 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
 
   app.post('/api/send', async (c) => {
     const b = await body(c);
-    only(c, b.from === LIAISON && b.to === owner);
+    // The liaison can send to the owner, or to main (an event request for the owner's calendar). Its memos are never trusted.
+    only(c, b.from === LIAISON && (b.to === owner || b.to === 'main'));
     if (c.get('role') !== 'full') delete b.trusted;
     return c.json(store.send(b));
   });
