@@ -257,3 +257,63 @@ test('each memo in the Inbox shows its number, in full and collapsed', async () 
   assert.match(page, /: '', numberOf\(memo\), newTag\(memo\)\)/);
   assert.match((await get('/ui/common.css')).text, /\.meta \.num \{[^}]*tabular-nums/);
 });
+
+test('the one-card view keeps the card of a memo, and after a memo leaves, the memo in its place comes next', async () => {
+  const { cardIndex, cardProgress } = await import('../ui/filter.js');
+  const list = [{ id: 4 }, { id: 9 }, { id: 2 }];
+  assert.equal(cardIndex(list, null, 0), 0, 'the first card at the start');
+  assert.equal(cardIndex(list, 9, 0), 1, 'the memo of the card keeps its card when the list moves');
+  assert.equal(cardIndex(list, 7, 1), 1, 'memo 7 left: the memo that took its place is next');
+  assert.equal(cardIndex(list, 7, 5), 3, 'a place after the end is the summary');
+  assert.equal(cardIndex([], 7, 2), 0);
+  assert.equal(cardIndex(list, null, -3), 0);
+  assert.equal(cardProgress(2, 12), '3 of 12');
+  assert.equal(cardProgress(12, 12), '12 of 12');
+});
+
+test('the Inbox has a List / One card switch that the device keeps', async () => {
+  const page = (await get('/inbox')).text;
+  assert.match(page, /<span id="view" role="group" aria-label="View"><button type="button" data-view="list" aria-pressed="true"[^>]*>List<\/button><button type="button" data-view="card" aria-pressed="false"[^>]*>One card<\/button><\/span>/);
+  assert.match(page, /const VIEW_KEY = 'memo-view';/);
+  assert.match(page, /try \{ oneCard = localStorage\.getItem\(VIEW_KEY\) === 'card'; \} catch/);
+  assert.match(page, /try \{ localStorage\.setItem\(VIEW_KEY, card \? 'card' : 'list'\); \} catch/);
+  // The cards have the order and the filter of the list.
+  assert.match(page, /queue\.replaceChildren\(\.\.\.\(list\.length \|\| handled\.length \? \[deckView\(list\)\] : \[\]\)\)/);
+  assert.match(page, /function render\(\) \{\n  const list = shown\(\);/);
+});
+
+test('a swipe and the arrow keys only go to another card; Reply, Close, and Later are buttons', async () => {
+  const page = (await get('/inbox')).text;
+  const swipe = page.slice(page.indexOf('function bindSwipe(card)'), page.indexOf('function deckButton('));
+  assert.ok(swipe.length > 100);
+  assert.doesNotMatch(swipe, /api\(|reply\(|close\(|later\(/, 'a swipe sends nothing to the server');
+  assert.match(swipe, /if \(by\) cardMove\(by\);/);
+  assert.match(swipe, /swipeStep\(dx, /);
+  assert.match(page, /event\.key === 'ArrowRight' \|\| event\.key === 'j'\) \{ event\.preventDefault\(\); return cardMove\(1\); \}/);
+  assert.match(page, /event\.key === 'ArrowLeft' \|\| event\.key === 'k'\) \{ event\.preventDefault\(\); return cardMove\(-1\); \}/);
+  const card = page.slice(page.indexOf('function cardView('), page.indexOf('function summaryView('));
+  for (const label of ['Reply', 'Close', 'Later', 'Skip']) assert.match(card, new RegExp(`deckButton\\('${label}'`));
+  assert.match(card, /close\(memo, b, done\('Closed'\)\)/);
+  assert.match(card, /reply\(memo, area\.value, b, done\('Replied'\)\)/);
+  assert.match(card, /postponePicker\(memo, done\('Later'\)\)/);
+  assert.match(card, /deckButton\('Skip', 'skip', \(\) => cardMove\(1\)/);
+  // The card shows the memo as the list does: the same text, check boxes, images, rule box, and notes.
+  assert.match(card, /bodyOf\(memo, asked\)/);
+  assert.match(card, /notesOf\(memo\)/);
+  assert.match(card, /numberOf\(memo\)/);
+  assert.match(card, /'Next: '/);
+});
+
+test('the one-card view has a summary at the end, an undo for Later, and respects reduced motion', async () => {
+  const page = (await get('/inbox')).text;
+  assert.match(page, /'That was the last card'/);
+  assert.match(page, /deckButton\('Start over'/);
+  assert.match(page, /await api\('\/api\/postpone', \{ id: back\.id, date: null \}\);/);
+  const css = (await get('/ui/common.css')).text;
+  assert.match(css, /\.deck \{[^}]*overflow-x: clip/, 'a moving card does not make the page wider');
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.memo\.card, \.deck-bar i \{ transition: none; \}\n  \.memo\.card\.enter-next, \.memo\.card\.enter-prev \{ animation: none; \}/);
+  // The one-card view uses only the colors of the page.
+  const deckCss = css.slice(css.indexOf('/* The view switch'), css.indexOf('/* A memo in the compact view'));
+  assert.ok(deckCss.length > 100);
+  assert.doesNotMatch(deckCss.replace(/rgb\(0 0 0 \/ \.1\)/, ''), /#[0-9a-f]{3,6}\b|rgb\(|hsl\(/i);
+});

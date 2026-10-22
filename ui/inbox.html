@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/ui/common.css">
 </head>
 <body>
-<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><select id="sort" aria-label="Order" title="The order of the memos: Rank (due soon, then impact per effort) or Recently updated (the newest send, note, edit, or return from a postpone first)"><option value="rank">Rank</option><option value="updated">Recently updated</option></select><button id="compact" type="button" aria-pressed="false" title="Collapse all memos to their name and next step. A click on a memo opens it. A click here when all are collapsed shows all memos in full. Key: c">Collapse</button><a href="/agents">Agents</a><a href="/log">Log</a></header>
+<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><select id="sort" aria-label="Order" title="The order of the memos: Rank (due soon, then impact per effort) or Recently updated (the newest send, note, edit, or return from a postpone first)"><option value="rank">Rank</option><option value="updated">Recently updated</option></select><button id="compact" type="button" aria-pressed="false" title="Collapse all memos to their name and next step. A click on a memo opens it. A click here when all are collapsed shows all memos in full. Key: c">Collapse</button><span id="view" role="group" aria-label="View"><button type="button" data-view="list" aria-pressed="true" title="All memos in a list">List</button><button type="button" data-view="card" aria-pressed="false" title="One memo at a time, in the order and with the filter of the list. Swipe or use the arrow keys to go to the next or the previous memo">One card</button></span><a href="/agents">Agents</a><a href="/log">Log</a></header>
 <form id="token-form" hidden>
   <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
   <button>Save</button>
@@ -30,7 +30,7 @@
   <div id="sent" role="status" aria-live="polite"></div>
   <div id="work"></div>
 </div>
-<footer>Keys: j and k select a memo. c collapses all memos (or shows them in full), and o opens or closes the selected memo in it. + and - change the impact. w shows the work memos or all memos. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
+<footer>Keys: j and k select a memo. In the one-card view, the left and right arrows (or j and k) go to the previous and the next card, and a swipe does the same; nothing changes until you use a button. c collapses all memos (or shows them in full), and o opens or closes the selected memo in it. + and - change the impact. w shows the work memos or all memos. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
 <script type="module">
 import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } from '/ui/common.js';
 import { render as markdown, summary } from '/ui/markdown.js';
@@ -38,7 +38,8 @@ import { enterSends, fieldHeight } from '/ui/keys.js';
 import { withFeedback } from '/ui/feedback.js';
 import { workSigns, signText } from '/ui/working.js';
 import { parseRule, withoutMarker } from '/ui/rule.js';
-import { shownMemos, sortedMemos, sortChoice, step, countText, filterChoices, tagSuggestions, todayIn, addDays, nextMonday, dueWarning, COMPACT_NOTE, compactAsked, shownNotes } from '/ui/filter.js';
+import { shownMemos, sortedMemos, sortChoice, step, countText, filterChoices, tagSuggestions, todayIn, addDays, nextMonday, dueWarning, COMPACT_NOTE, compactAsked, shownNotes, cardIndex, cardProgress } from '/ui/filter.js';
+import { swipeStep } from '/ui/lightbox.js';
 
 const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
@@ -129,7 +130,7 @@ function view(memo) {
   const thumbs = el('div', { className: 'thumbs', hidden: true });
   const sendButtons = [
     button('Reply', (b) => reply(memo, area.value, b), 'Send the answer. The memo leaves your Inbox.'),
-    ...(['liaison', 'discord'].includes(memo.sender) ? [] : [button('Note', (b) => addNote(memo, area.value, b), 'Send the text to the agent. The memo stays open in your Inbox.')]),
+    ...(noNotes(memo) ? [] : [button('Note', (b) => addNote(memo, area.value, b), 'Send the text to the agent. The memo stays open in your Inbox.')]),
     button('Close', (b) => close(memo, b), 'Close the memo. The text in the reply field goes with it.'),
   ];
   const facts = factsOf(memo);
@@ -154,13 +155,9 @@ function view(memo) {
       ...(compact ? [button('Collapse', () => toggleOpen(memo.id), 'Show only the name and the next step of this memo')] : [])),
     tagPanel,
     laterPanel,
-    // A memo that quotes Discord text gets no frame.
-    el('div', { className: 'md' }, ...markdown(asked ? withoutMarker(memo.text) : memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: (n, on, box) => check(memo.id, n, on, box) })),
+    bodyOf(memo, asked),
     asked ? ruleBox(memo, asked) : '',
-    // The notes of the memo: messages between the owner and the sender while the memo is open.
-    shownNotes(memo).length ? el('div', { className: 'notes' }, ...shownNotes(memo).map((n) => el('div', { className: 'note' },
-      el('div', { className: 'who' }, el('b', {}, n.author), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
-      el('div', { className: 'md' }, ...markdown(n.text, el))))) : '',
+    notesOf(memo),
     // The buttons that send are off while an image goes to the server.
     attach(area, thumbs, (busy) => { for (const b of sendButtons) b.disabled = busy; }),
     thumbs,
@@ -174,6 +171,14 @@ function view(memo) {
   if (tag) watch.observe(node);
   return node;
 }
+
+// The text of a memo, with its check boxes and images. A memo that quotes Discord text gets no frame.
+const bodyOf = (memo, asked) => el('div', { className: 'md' }, ...markdown(asked ? withoutMarker(memo.text) : memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: (n, on, box) => check(memo.id, n, on, box) }));
+// The notes of the memo: messages between the owner and the sender while the memo is open.
+const notesOf = (memo) => (shownNotes(memo).length ? el('div', { className: 'notes' }, ...shownNotes(memo).map((n) => el('div', { className: 'note' },
+  el('div', { className: 'who' }, el('b', {}, n.author), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
+  el('div', { className: 'md' }, ...markdown(n.text, el))))) : '');
+const noNotes = (memo) => ['liaison', 'discord'].includes(memo.sender);
 
 // The rule of a memo rule request, as the server reads it from the marker, and the Approve rule button. The click
 // sends this exact rule; the server refuses it if the memo changed. The server writes the rule, never the agent.
@@ -223,7 +228,8 @@ async function setTag(memo, name, on) {
 }
 
 // The postpone choices: tomorrow, next Monday, or a date. The memo comes back at 9:00 on that day.
-function postponePicker(memo) {
+// onDone: runs after the server postponed the memo, before the new list (the one-card view counts it).
+function postponePicker(memo, onDone) {
   const today = todayIn(zone);
   const warn = el('p', { className: 'warn', hidden: true });
   const showWarning = (date) => { warn.textContent = dueWarning(memo, date); warn.hidden = !warn.textContent; };
@@ -231,7 +237,7 @@ function postponePicker(memo) {
   picked.setAttribute('aria-label', `Date for memo ${memo.id} to come back`);
   picked.addEventListener('input', () => showWarning(picked.value));
   const choice = (label, date) => {
-    const b = button(`${label} (${shortDate(date)})`, () => later(memo, date), `Back on ${date} at 9:00`);
+    const b = button(`${label} (${shortDate(date)})`, () => later(memo, date, onDone), `Back on ${date} at 9:00`);
     b.addEventListener('mouseenter', () => showWarning(date));
     b.addEventListener('focus', () => showWarning(date));
     return b;
@@ -239,12 +245,12 @@ function postponePicker(memo) {
   const panel = el('div', { className: 'panel', hidden: true },
     choice('Tomorrow', addDays(today, 1)),
     choice('Next week', nextMonday(today)),
-    el('span', { className: 'pick' }, picked, button('Postpone', () => later(memo, picked.value), 'Back on this date at 9:00')),
+    el('span', { className: 'pick' }, picked, button('Postpone', () => later(memo, picked.value, onDone), 'Back on this date at 9:00')),
     warn);
   return panel;
 }
 const shortDate = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
-const later = (memo, date) => (date ? run(() => api('/api/postpone', { id: memo.id, date })) : note('Pick a date first.'));
+const later = (memo, date, onDone) => (date ? run(async () => { await api('/api/postpone', { id: memo.id, date }); onDone?.(date); }) : note('Pick a date first.'));
 
 // The postponed memos: a button with the count, and a list with the return time and "Bring back now".
 const laterBox = document.getElementById('later');
@@ -299,7 +305,7 @@ async function markSeen(id) {
     await api('/api/seen', { ids: [id] });
     const memo = memos.find((m) => m.id === id);
     if (memo) memo.seen = 1;
-    const node = [...queue.children].find((n) => Number(n.dataset.id) === id);
+    const node = nodeOf(id);
     if (!node) return;
     watch.unobserve(node);
     const tag = node.querySelector('.tag');
@@ -314,7 +320,8 @@ const MAX_TOASTS = 3;
 const toasts = document.getElementById('toasts');
 const closed = new Set(); // toast keys that the owner closed
 const toastKey = (memo) => `${memo.id}:${memo.seen}:${memo.text.length}:${memo.notes?.length || 0}`;
-const nodeOf = (id) => [...queue.children].find((n) => Number(n.dataset.id) === id);
+// The node of a memo: a row of the list, or the card of the one-card view.
+const nodeOf = (id) => queue.querySelector(`.memo[data-id="${Number(id)}"]`);
 function onScreen(node) {
   const r = node.getBoundingClientRect();
   const shown = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
@@ -416,15 +423,212 @@ function setSort(next) {
 }
 sortMenu.addEventListener('change', () => { setSort(sortMenu.value); sortMenu.blur(); });
 
+// The one-card view: one memo at a time, in the order and with the filter of the list. A swipe, the arrow keys,
+// Skip, and Back only go to another card: they change nothing. Reply, Close, and Later are buttons, so a slip of
+// the finger cannot answer, close, or postpone a memo. The device keeps the choice, like the compact choice.
+const VIEW_KEY = 'memo-view';
+let oneCard = false;
+try { oneCard = localStorage.getItem(VIEW_KEY) === 'card'; } catch { /* a private window: the list */ }
+const viewButtons = [...document.querySelectorAll('#view button')];
+let cardId = null; // the memo on the card
+let cardPos = 0; // the place of that card in the list; the list length is the summary at the end
+let cardEnter = ''; // 'next' or 'prev': the side that the new card comes in from
+let replyOpen = null; // the memo whose reply box is open, so that a refresh keeps it open
+const handled = []; // { id, title, what }: the memos that the owner answered in this view, for the summary
+let lastLater = null; // { id, title }: the memo that Later took out last, for Undo
+const titleOf = (memo) => memo.title || summary(memo.text) || `Memo ${memo.id}`;
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+function setView(card) {
+  oneCard = card;
+  try { localStorage.setItem(VIEW_KEY, card ? 'card' : 'list'); } catch { /* the choice stays in memory */ }
+  // The cards start at the memo that the list had selected; the list comes back with the memo of the card selected.
+  if (card) { cardId = selected; cardPos = 0; cardEnter = ''; } else if (cardId !== null) selected = cardId;
+  render();
+  if (!card) nodeOf(selected)?.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+}
+for (const b of viewButtons) b.addEventListener('click', () => { if ((b.dataset.view === 'card') !== oneCard) setView(!oneCard); });
+
+// A step of +1 (the next card) or -1 (the previous card). The step after the last card shows the summary.
+function cardMove(by) {
+  const list = shown();
+  const at = cardIndex(list, cardId, cardPos);
+  const to = Math.max(0, Math.min(list.length, at + by));
+  if (to === at) return;
+  cardPos = to;
+  cardId = list[to]?.id ?? null;
+  cardEnter = by > 0 ? 'next' : 'prev';
+  replyOpen = null;
+  render();
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
+// The parts of a card that do not take a swipe: fields, buttons, links, code, and wide tables (they scroll sideways).
+const NO_SWIPE = 'textarea, input, button, select, a, label, pre, .table, .panel, .frame';
+// A swipe with one finger moves the card with the finger and shows where it goes. A short move, a move that is
+// mostly up or down, a pinch, or a move on a zoomed page does nothing. No touch-action: pinch-zoom keeps working.
+function bindSwipe(card) {
+  let start = null;
+  const [back, next] = card.querySelectorAll('.swipe-hint');
+  const reset = () => { card.classList.remove('dragging'); card.style.transform = ''; back.style.opacity = ''; next.style.opacity = ''; };
+  card.addEventListener('touchstart', (event) => {
+    const zoomed = window.visualViewport && window.visualViewport.scale > 1.01;
+    const t = event.touches[0];
+    start = event.touches.length === 1 && !zoomed && !event.target.closest(NO_SWIPE) ? { x: t.clientX, y: t.clientY } : null;
+  }, { passive: true });
+  card.addEventListener('touchmove', (event) => {
+    if (!start) return;
+    if (event.touches.length > 1) { start = null; reset(); return; }
+    const dx = event.touches[0].clientX - start.x;
+    const dy = event.touches[0].clientY - start.y;
+    if (Math.abs(dx) < Math.abs(dy)) { reset(); return; }
+    card.classList.add('dragging');
+    if (!reducedMotion()) card.style.transform = `translateX(${dx}px) rotate(${dx / 40}deg)`;
+    next.style.opacity = String(Math.max(0, Math.min(1, -dx / 80)));
+    back.style.opacity = String(Math.max(0, Math.min(1, dx / 80)));
+  }, { passive: true });
+  card.addEventListener('touchend', (event) => {
+    if (!start || event.changedTouches.length !== 1) { start = null; reset(); return; }
+    const dx = event.changedTouches[0].clientX - start.x;
+    const by = Math.abs(dx) >= 80 ? swipeStep(dx, event.changedTouches[0].clientY - start.y) : 0;
+    start = null;
+    reset();
+    if (by) cardMove(by);
+  });
+  card.addEventListener('touchcancel', () => { start = null; reset(); });
+}
+
+// A button of the card. key: the name that keeps the focus on the same button after the new card shows.
+function deckButton(label, key, onClick, title, primary = false) {
+  const b = button(label, onClick, title);
+  b.dataset.deck = key;
+  if (primary) b.className = 'primary';
+  return b;
+}
+
+function cardView(memo, list, at) {
+  const asked = parseRule(memo.text);
+  const tag = newTag(memo);
+  // After the server did the action, before the new list: the summary counts the memo, and the next card comes in.
+  const done = (what) => () => {
+    handled.push({ id: memo.id, title: titleOf(memo), what });
+    if (what === 'Later') lastLater = { id: memo.id, title: titleOf(memo) };
+    cardEnter = 'next';
+    replyOpen = null;
+  };
+  const area = el('textarea', { rows: 4, placeholder: `Reply to ${memo.sender}`, value: drafts.get(memo.id) || '' });
+  area.setAttribute('aria-label', `Reply to memo ${memo.id}`);
+  area.addEventListener('input', () => drafts.set(memo.id, area.value));
+  area.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.repeat) { event.preventDefault(); reply(memo, area.value, sendButtons[0], done('Replied')); }
+  });
+  const thumbs = el('div', { className: 'thumbs', hidden: true });
+  const sendButtons = [
+    deckButton('Send reply', 'send', (b) => reply(memo, area.value, b, done('Replied')), 'Send the answer. The memo leaves your Inbox. Key: Command-Return', true),
+    ...(noNotes(memo) ? [] : [button('Note', (b) => addNote(memo, area.value, b), 'Send the text to the agent. The memo stays open in your Inbox.')]),
+  ];
+  const replyBox = el('div', { className: 'reply-box', hidden: replyOpen !== memo.id },
+    attach(area, thumbs, (busy) => { for (const b of sendButtons) b.disabled = busy; }),
+    thumbs,
+    el('div', { className: 'row' }, ...sendButtons, el('span', { className: 'spacer' }),
+      button('Cancel', () => { replyBox.hidden = true; replyOpen = null; replyButton.focus(); }, 'Close the reply box. Your text stays for later.')));
+  const laterPanel = postponePicker(memo, done('Later'));
+  const replyButton = deckButton('Reply', 'reply', () => {
+    laterPanel.hidden = true;
+    replyBox.hidden = !replyBox.hidden;
+    replyOpen = replyBox.hidden ? null : memo.id;
+    if (!replyBox.hidden) area.focus();
+  }, 'Write an answer to this memo', true);
+  const card = el('article', { className: `memo card${cardEnter && !reducedMotion() ? ` enter-${cardEnter}` : ''}` },
+    el('span', { className: 'swipe-hint back', ariaHidden: 'true' }, '‹ Back'),
+    el('span', { className: 'swipe-hint next', ariaHidden: 'true' }, 'Next ›'),
+    el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), factsOf(memo), numberOf(memo), tag),
+    el('h2', { className: 'card-title' }, titleOf(memo)),
+    memo.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), memo.next) : '',
+    bodyOf(memo, asked),
+    asked ? ruleBox(memo, asked) : '',
+    notesOf(memo),
+    replyBox,
+    laterPanel);
+  card.dataset.id = memo.id;
+  card.setAttribute('aria-label', `Memo ${cardProgress(at, list.length)}: ${titleOf(memo)}`);
+  bindSwipe(card);
+  if (tag) watch.observe(card);
+  const buttons = el('div', { className: 'deck-btns' },
+    replyButton,
+    deckButton('Close', 'close', (b) => close(memo, b, done('Closed')), 'Close the memo. The text in the reply box goes with it.'),
+    deckButton('Later', 'later', () => {
+      replyBox.hidden = true;
+      replyOpen = null;
+      laterPanel.hidden = !laterPanel.hidden;
+      if (!laterPanel.hidden) laterPanel.querySelector('button')?.focus();
+    }, 'Take this memo out of the Inbox until a date'),
+    deckButton('Skip', 'skip', () => cardMove(1), 'Go to the next memo. This memo does not change. Key: right arrow'));
+  return [
+    el('div', { className: 'deck-stack' }, at + 1 < list.length ? el('div', { className: 'deck-under', ariaHidden: 'true' }) : '', card),
+    buttons,
+  ];
+}
+
+// The end of the cards: what happened to each memo, and the memos that are still in the Inbox.
+function summaryView(list) {
+  const groups = ['Replied', 'Closed', 'Later'].map((what) => [what, handled.filter((h) => h.what === what)]).filter(([, items]) => items.length);
+  return el('section', { className: 'memo card summary', ariaLabel: 'Summary' },
+    el('h2', { className: 'card-title' }, list.length ? 'That was the last card' : 'Inbox clear'),
+    el('p', { className: 'dim' }, handled.length
+      ? `You answered ${handled.length} ${handled.length === 1 ? 'memo' : 'memos'} here.${list.length ? ` ${list.length} still ${list.length === 1 ? 'waits' : 'wait'} in the Inbox.` : ''}`
+      : `You went through all ${list.length} ${list.length === 1 ? 'memo' : 'memos'} and changed nothing.`),
+    ...groups.map(([what, items]) => el('div', { className: 'tally' }, el('b', {}, `${what} · ${items.length}`),
+      el('ul', {}, ...items.map((h) => el('li', {}, h.title))))),
+    el('div', { className: 'deck-btns' },
+      deckButton('Start over', 'again', () => { handled.length = 0; lastLater = null; cardPos = 0; cardId = shown()[0]?.id ?? null; cardEnter = 'prev'; render(); }, 'Go back to the first card', true),
+      deckButton('Back to the list', 'list', () => setView(false), 'Show all memos in a list')));
+}
+
+function deckView(list) {
+  const at = cardIndex(list, cardId, cardPos);
+  cardPos = at;
+  cardId = list[at]?.id ?? null;
+  if (cardId !== null) selected = cardId;
+  const memo = list[at];
+  const nav = el('div', { className: 'deck-nav' },
+    deckButton('‹ Back', 'back', () => cardMove(-1), 'Go to the previous memo. Key: left arrow'),
+    lastLater ? deckButton(`Undo Later: ${lastLater.title}`, 'undo', () => {
+      const back = lastLater;
+      run(async () => {
+        await api('/api/postpone', { id: back.id, date: null });
+        const i = handled.findLastIndex((h) => h.id === back.id && h.what === 'Later');
+        if (i >= 0) handled.splice(i, 1);
+        lastLater = null;
+        cardId = back.id;
+        cardEnter = 'prev';
+      });
+    }, 'Bring this memo back to the Inbox now') : '');
+  nav.firstChild.disabled = at === 0;
+  const deck = el('div', { className: 'deck' },
+    el('div', { className: 'deck-top' }, el('span', {}, memo ? cardProgress(at, list.length) : `${list.length} of ${list.length}`), el('span', { className: 'dim' }, 'Swipe or use ← →')),
+    el('div', { className: 'deck-bar', ariaHidden: 'true' }, el('i', { style: `width: ${list.length ? (Math.min(at, list.length) / list.length) * 100 : 100}%` })),
+    ...(memo ? cardView(memo, list, at) : [summaryView(list)]),
+    nav);
+  // A refresh of the same card does not play the animation again.
+  cardEnter = '';
+  return deck;
+}
+
 function render() {
   const list = shown();
   const filtered = filter !== 'all';
-  const rows = filtered ? [] : ticks;
+  // The one-card view shows no ticks: they are not memos.
+  const rows = filtered || oneCard ? [] : ticks;
   if (!list.some((c) => c.id === selected)) selected = list[0]?.id ?? null;
   watch.disconnect();
   for (const timer of waiting.values()) clearTimeout(timer);
   waiting.clear();
-  queue.replaceChildren(...list.map(view));
+  // A button of the card keeps the focus when the next card comes, so the keyboard can go on.
+  const focusKey = document.activeElement?.dataset?.deck;
+  queue.classList.toggle('one-card', oneCard);
+  if (oneCard) queue.replaceChildren(...(list.length || handled.length ? [deckView(list)] : []));
+  else queue.replaceChildren(...list.map(view));
+  if (oneCard && focusKey) (queue.querySelector(`[data-deck="${focusKey}"]:not(:disabled)`) || queue.querySelector('[data-deck="skip"], [data-deck="again"]'))?.focus({ preventScroll: true });
   const first = queue.firstChild;
   for (const tick of rows) queue.insertBefore(tickView(tick), sort === 'updated' ? first : tick.before === null ? null : nodeOf(tick.before) || null);
   loadImages(queue);
@@ -433,11 +637,14 @@ function render() {
   sortMenu.value = sort;
   sortMenu.classList.toggle('on', sort !== 'rank');
   compactButton.classList.toggle('on', compact);
+  // Collapse is for the list. The one-card view always shows the full memo.
+  compactButton.hidden = oneCard;
+  for (const b of viewButtons) b.setAttribute('aria-pressed', String((b.dataset.view === 'card') === oneCard));
   compactButton.setAttribute('aria-pressed', String(compact));
   document.getElementById('count').textContent = countText(list.length, memos.length, filtered);
   const empty = document.getElementById('empty');
   empty.textContent = filtered ? 'No memos with this filter need you now.' : 'No memos need you now.';
-  empty.hidden = list.length > 0 || rows.length > 0;
+  empty.hidden = list.length > 0 || rows.length > 0 || (oneCard && handled.length > 0);
   laterBox.hidden = !postponedCount;
   laterToggle.textContent = `Postponed (${postponedCount})`;
 }
@@ -498,7 +705,7 @@ async function load({ list = true } = {}) {
 }
 
 async function run(action) {
-  try { await action(); await load(); } catch (error) { note(error.message); }
+  try { await action(); await load(); return true; } catch (error) { note(error.message); return false; }
 }
 // Sends with a sign on the button: a spinner while the request is out, then a check mark, then the new list.
 // A failure shows the error and keeps the text and the images in the field.
@@ -514,15 +721,16 @@ async function send(buttonNode, action, sentText) {
     note(error instanceof TypeError ? 'Not sent: the server did not answer. Your text is still in the field. Try again.' : error.message);
   } finally { for (const b of others) b.disabled = false; }
 }
-const reply = (memo, text, buttonNode) => {
+// onDone: runs after the server has the answer, before the new list (the one-card view counts it).
+const reply = (memo, text, buttonNode, onDone) => {
   if (!text.trim()) return note('Write a reply first.');
-  return send(buttonNode, async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); }, `Reply sent to ${memo.sender}`);
+  return send(buttonNode, async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); onDone?.(); }, `Reply sent to ${memo.sender}`);
 };
 const addNote = (memo, text, buttonNode) => {
   if (!text.trim()) return note('Write a note first.');
   return send(buttonNode, async () => { await api('/api/note', { id: memo.id, from: '__OWNER__', text }); drafts.delete(memo.id); }, `Note sent to ${memo.sender}`);
 };
-const close = (memo, buttonNode) => send(buttonNode, async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); });
+const close = (memo, buttonNode, onDone) => send(buttonNode, async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); onDone?.(); });
 const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta }));
 
 async function loadAgents() {
@@ -570,6 +778,15 @@ const typing = () => {
 document.addEventListener('keydown', (event) => {
   if (typing() || event.metaKey || event.ctrlKey || event.altKey) return;
   if (event.key === 'w') return setFilter(filter === 'work' ? 'all' : 'work');
+  if (oneCard) {
+    // The one-card view: the arrows and j and k go to the next or the previous card. + and - change the impact.
+    if (event.key === 'ArrowRight' || event.key === 'j') { event.preventDefault(); return cardMove(1); }
+    if (event.key === 'ArrowLeft' || event.key === 'k') { event.preventDefault(); return cardMove(-1); }
+    if (cardId === null) return;
+    if (event.key === '+' || event.key === '=') adjust(cardId, 1);
+    else if (event.key === '-') adjust(cardId, -1);
+    return;
+  }
   if (event.key === 'c') return collapseAll();
   const list = shown();
   if (!list.length) return;
