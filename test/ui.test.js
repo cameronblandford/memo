@@ -273,6 +273,15 @@ test('the fold: memos with no change for 5 days go to the bottom, and Close all 
   assert.match(page, /await api\('\/api\/close', \{ id \}\);/);
 });
 
+test('the selection marks a card in the fold too, and j and k go into the fold only while it is open', async () => {
+  const page = (await get('/inbox')).text;
+  const select = page.slice(page.indexOf('function select(id) {'), page.indexOf('\n}\n', page.indexOf('function select(id) {')));
+  assert.match(select, /for \(const node of queue\.querySelectorAll\('\.memo'\)\) node\.classList\.toggle\('selected', Number\(node\.dataset\.id\) === id\);/);
+  assert.doesNotMatch(select, /queue\.children/, 'the cards in the fold are not direct children of the queue');
+  assert.match(page, /if \(!foldOpen && old\.some\(\(m\) => m\.id === selected\)\) selected = fresh\[0\]\?\.id \?\? null;/);
+  assert.match(page, /const list = shown\(\)\.filter\(\(m\) => foldOpen \|\| !isOld\(m\)\);\n  if \(!list\.length\) return;\n  if \(event\.key === 'j' \|\| event\.key === 'k'\) \{/);
+});
+
 test('the postpone picker has Tomorrow, Next week, and In a month', async () => {
   const { inAMonth } = await import('../ui/filter.js');
   assert.equal(inAMonth('2026-10-22'), '2026-11-22');

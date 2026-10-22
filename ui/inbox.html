@@ -53,7 +53,8 @@ let ruleAgents = null; // the names of the agents with a settings file in agents
 
 function select(id) {
   selected = id;
-  for (const node of queue.children) node.classList.toggle('selected', Number(node.dataset.id) === id);
+  // All cards of the queue, also the cards in the fold (they are not direct children of the queue).
+  for (const node of queue.querySelectorAll('.memo')) node.classList.toggle('selected', Number(node.dataset.id) === id);
 }
 
 // The card of a memo shows its name, the next step, and the buttons. The full text and the notes open under
@@ -616,6 +617,8 @@ function render() {
   if (oneCard) queue.replaceChildren(...(list.length || handled.length ? [deckView(list)] : []));
   else {
     const { fresh, old } = splitOld(list);
+    // A card in the closed fold cannot be the selected card: the keys would act on a card that is not on the screen.
+    if (!foldOpen && old.some((m) => m.id === selected)) selected = fresh[0]?.id ?? null;
     queue.replaceChildren(...fresh.map(view), ...(old.length ? [foldView(old)] : []));
   }
   if (oneCard && focusKey) (queue.querySelector(`[data-deck="${focusKey}"]:not(:disabled)`) || queue.querySelector('[data-deck="skip"], [data-deck="again"]'))?.focus({ preventScroll: true });
