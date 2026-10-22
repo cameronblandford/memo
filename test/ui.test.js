@@ -253,9 +253,11 @@ test('the Inbox hides the Shorten note: it is only a signal to the agent', async
 test('each memo in the Inbox shows its number, in full and collapsed', async () => {
   const page = (await get('/inbox')).text;
   assert.match(page, /const numberOf = \(memo\) => el\('span', \{ className: 'num' \}, `#\$\{memo\.id\}`\);/);
-  assert.match(page, /el\('span', \{ className: 'sender' \}, memo\.sender\), facts, numberOf\(memo\), tag\)/);
-  assert.match(page, /: '', numberOf\(memo\), newTag\(memo\)\)/);
-  assert.match((await get('/ui/common.css')).text, /\.meta \.num \{[^}]*tabular-nums/);
+  // The number comes first in the meta line and floats to the top right corner, with the new tag just left of it.
+  assert.match(page, /className: 'meta' \}, numberOf\(memo\), tag, el\('span', \{ className: 'sender' \}, memo\.sender\), facts\)/);
+  assert.match(page, /className: 'meta' \}, numberOf\(memo\), newTag\(memo\), el\('span', \{ className: 'sender' \}/);
+  assert.match(page, /className: 'meta' \}, numberOf\(memo\), tag, el\('span', \{ className: 'sender' \}, memo\.sender\), factsOf\(memo\)\)/);
+  assert.match((await get('/ui/common.css')).text, /\.meta \.num \{ float: right;[^}]*tabular-nums/);
 });
 
 test('the one-card view keeps the card of a memo, and after a memo leaves, the memo in its place comes next', async () => {

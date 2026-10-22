@@ -97,14 +97,15 @@ function toggleOpen(id) {
 // In the Recently updated order, a memo that changed after its send shows the time of that change too.
 const changedAt = (memo) => (sort === 'updated' && memo.updated && memo.updated !== memo.created ? ` · updated ${age(memo.updated)}` : '');
 const factsOf = (memo) => ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}${changedAt(memo)}`;
-// The number of the memo, small and dim at the end of the meta line, so the owner can name the memo in a chat.
+// The number of the memo, small and dim in the top right corner of the card, so the owner can name the memo in a chat.
+// It comes first in the meta line and floats right; the new tag floats just left of it.
 const numberOf = (memo) => el('span', { className: 'num' }, `#${memo.id}`);
 const newTag = (memo) => (memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'));
 function briefView(memo) {
   const notes = shownNotes(memo).length;
   const node = el('article', { className: memo.id === selected ? 'memo brief selected' : 'memo brief', title: 'Open this memo' },
-    el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), factsOf(memo),
-      notes ? ` · ${notes} ${notes === 1 ? 'note' : 'notes'}` : '', numberOf(memo), newTag(memo)),
+    el('div', { className: 'meta' }, numberOf(memo), newTag(memo), el('span', { className: 'sender' }, memo.sender), factsOf(memo),
+      notes ? ` · ${notes} ${notes === 1 ? 'note' : 'notes'}` : ''),
     el('div', { className: 'name' }, memo.title || summary(memo.text) || `Memo ${memo.id}`),
     memo.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), memo.next) : '');
   node.dataset.id = memo.id;
@@ -142,7 +143,7 @@ function view(memo) {
   const laterPanel = postponePicker(memo);
   const toggle = (panel, other) => { other.hidden = true; panel.hidden = !panel.hidden; if (!panel.hidden) panel.querySelector('input, button')?.focus(); };
   const node = el('article', { className: memo.id === selected ? 'memo selected' : 'memo' },
-    el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), facts, numberOf(memo), tag),
+    el('div', { className: 'meta' }, numberOf(memo), tag, el('span', { className: 'sender' }, memo.sender), facts),
     el('div', { className: 'chips' },
       ...memo.tags.map((t) => {
         const remove = button('×', () => setTag(memo, t, false), `Remove the tag ${t}`);
@@ -541,7 +542,7 @@ function cardView(memo, list, at) {
   const card = el('article', { className: `memo card${cardEnter && !reducedMotion() ? ` enter-${cardEnter}` : ''}` },
     el('span', { className: 'swipe-hint back', ariaHidden: 'true' }, '‹ Back'),
     el('span', { className: 'swipe-hint next', ariaHidden: 'true' }, 'Next ›'),
-    el('div', { className: 'meta' }, el('span', { className: 'sender' }, memo.sender), factsOf(memo), numberOf(memo), tag),
+    el('div', { className: 'meta' }, numberOf(memo), tag, el('span', { className: 'sender' }, memo.sender), factsOf(memo)),
     el('h2', { className: 'card-title' }, titleOf(memo)),
     memo.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), memo.next) : '',
     bodyOf(memo, asked),
