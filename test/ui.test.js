@@ -249,3 +249,11 @@ test('the Inbox hides the Shorten note: it is only a signal to the agent', async
   const page = (await get('/inbox')).text;
   assert.match(page, /shownNotes\(memo\)\.length \? el\('div', \{ className: 'notes' \}/);
 });
+
+test('each memo in the Inbox shows its number, in full and collapsed', async () => {
+  const page = (await get('/inbox')).text;
+  assert.match(page, /const numberOf = \(memo\) => el\('span', \{ className: 'num' \}, `#\$\{memo\.id\}`\);/);
+  assert.match(page, /el\('span', \{ className: 'sender' \}, memo\.sender\), facts, numberOf\(memo\), tag\)/);
+  assert.match(page, /: '', numberOf\(memo\), newTag\(memo\)\)/);
+  assert.match((await get('/ui/common.css')).text, /\.meta \.num \{[^}]*tabular-nums/);
+});
