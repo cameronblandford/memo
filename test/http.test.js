@@ -302,3 +302,22 @@ test('send takes choices for a memo to the owner, the queue gives them, and the 
   assert.equal((await call(app, '/api/reply', { id: 1, text: 'draft' })).data.reply, 'draft');
   assert.equal((await call(app, '/api/compact', { id: 1, from: 'main', text: 'Short.' })).status, 404);
 });
+
+test('the note route with memo_text changes the text and adds the note in one request; only the sender can give it', async () => {
+  const { app, store } = makeApp();
+  const id = (await call(app, '/api/send', { from: 'main', to: 'cam', text: 'Approve?', impact: 3, effort: 'short' })).data.memo.id;
+  await call(app, '/api/note', { id, from: 'cam', text: 'Add the price.' });
+  // Another agent, or the owner, cannot change the text of a memo of main.
+  assert.equal((await call(app, '/api/note', { id, from: 'liaison', text: 'x', memo_text: 'New' })).status, 403);
+  assert.equal((await call(app, '/api/note', { id, from: 'cam', text: 'x', memo_text: 'New' })).status, 403);
+  assert.equal((await call(app, '/api/note', { id, from: 'main', text: 'x', memo_text: 'New' }, LIAISON_TOKEN)).status, 403);
+  assert.equal(store.get(id).text, 'Approve?');
+  const r = await call(app, '/api/note', { id, from: 'main', text: 'Price added.', memo_text: 'Approve? $14 each month.' });
+  assert.deepEqual([r.data.text, r.data.state, r.data.notes.at(-1).text], ['Approve? $14 each month.', 'open', 'Price added.']);
+  // The liaison token: the text of its own memo only.
+  const own = (await call(app, '/api/send', { from: 'liaison', to: 'cam', text: 'Send the draft?', impact: 4, effort: 'micro' }, LIAISON_TOKEN)).data.memo.id;
+  await call(app, '/api/note', { id: own, from: 'cam', text: 'Make it shorter.' });
+  assert.equal((await call(app, '/api/note', { id, from: 'liaison', text: 'x', memo_text: 'New' }, LIAISON_TOKEN)).status, 403);
+  const l = await call(app, '/api/note', { id: own, from: 'liaison', text: 'Shorter.', memo_text: 'Send this draft? "Thanks!"' }, LIAISON_TOKEN);
+  assert.deepEqual([l.status, l.data.text, l.data.state], [200, 'Send this draft? "Thanks!"', 'open']);
+});

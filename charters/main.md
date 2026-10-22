@@ -27,6 +27,7 @@ List here the directories that the agent works in, and the file that it reads fi
    - "New memos to main": do them as steps 2 to 4 say.
    If it exits with "No news", run it again.
 7. To answer in a memo that waits for you, run `memo note <id> --from main -- "<answer>"`. To change the text of the memo instead, run `memo edit <id> -- "<new text>"`. Each one sends the memo back to the owner, with the same id. Do not send a new memo for a follow-up on an open memo.
+8. Keep the memo text current. After 4 turns, or when the subject changes, give the current state with `--text` when you answer: `memo note <id> --from main --text "<new memo text>" -- "<short answer>"`. This changes the text and adds the note in one step. The Inbox then shows the text and folds the old turns. When the subject is really new, do not continue in the memo. Send a new memo with the full context. Then end the old memo with a close text that points to the new memo: `memo close <id> "Continued in memo <new id>."`.
 
 More rules:
 

@@ -448,3 +448,35 @@ test('on a phone the work sign is in the page, not in the corner over the button
   assert.match(page, /document\.body\.style\.paddingBottom = `\$\{corner\.offsetHeight \+ 24\}px`/);
   assert.match((await get('/ui/common.css')).text, /body > #work \{ display: flex;/);
 });
+
+test('a long thread folds: the last turn of the owner and the last answer show, with the count of the earlier turns', async () => {
+  const { foldTurns, foldLabel } = await import('../ui/chat.js');
+  const turn = (author) => ({ author });
+  const six = ['cam', 'main', 'cam', 'main', 'cam', 'main'].map(turn);
+  assert.deepEqual(foldTurns(six, 'cam'), { keep: [false, false, false, false, true, true], folded: 4 });
+  assert.equal(foldLabel(4, false), '4 earlier turns');
+  assert.equal(foldLabel(4, true), 'Hide 4 earlier turns');
+  assert.equal(foldLabel(1, false), '1 earlier turn');
+  // A memo that waits for the agent: the last turn is of the owner.
+  assert.deepEqual(foldTurns(six.slice(0, 5), 'cam'), { keep: [false, false, false, false, true], folded: 4 });
+  // Two answers after the last turn of the owner: only the last answer shows.
+  assert.deepEqual(foldTurns(['cam', 'main', 'main'].map(turn), 'cam'), { keep: [true, false, true], folded: 1 });
+  // A short thread does not fold.
+  assert.deepEqual(foldTurns(['cam', 'main'].map(turn), 'cam').folded, 0);
+  assert.deepEqual(foldTurns([turn('main')], 'cam'), { keep: [true], folded: 0 });
+  assert.deepEqual(foldTurns([], 'cam'), { keep: [], folded: 0 });
+});
+
+test('the fold button is a real button that shows the earlier turns in place, with aria-expanded', () => {
+  const common = read('ui', 'common.js');
+  const turns = common.slice(common.indexOf('export function turnsOf('));
+  assert.match(common, /import \{ foldTurns, foldLabel \} from '\/ui\/chat\.js';/);
+  assert.match(turns, /const toggle = button\('', \(\) => show\(!openThreads\.has\(memo\.id\)\)/);
+  assert.match(turns, /toggle\.setAttribute\('aria-controls', list\.id\);/);
+  assert.match(turns, /toggle\.setAttribute\('aria-expanded', String\(open\)\);/);
+  // Expand: the hidden turns are in the page already, so no request goes to the server.
+  assert.match(turns, /nodes\.forEach\(\(node, i\) => \{ node\.hidden = !open && !keep\[i\]; \}\);/);
+  assert.doesNotMatch(turns, /api\(|fetch\(/);
+  // The Inbox, the Chat page, and the Desk use the same thread.
+  for (const page of ['inbox.html', 'chat.html', 'desk.html']) assert.match(read('ui', page), /turnsOf\(/, page);
+});

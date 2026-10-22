@@ -46,7 +46,7 @@ The file `.env` holds the configuration and the two tokens. Git ignores it. Its 
 | `MEMO_TOKEN` | The token of the owner and of the agent `main`. It can do all operations. |
 | `MEMO_OWNER_TOKEN` | Optional. The token of the owner alone. It can do all operations, and it can approve a permission rule (see below). Do not give it to an agent. |
 | `LINEAR_API_KEY`, `LINEAR_SYNC_MINUTES` | Optional. A Linear API key with read access, for the sync of the Desk (see "The Desk"), and the minutes between two syncs (default 10). |
-| `MEMO_LIAISON_TOKEN` | The token of the liaison run. It can only read the memos to `liaison`, send a memo to the owner or an event request to `main` (tag `event-request`), answer in the thread of its own memo (`memo note --from liaison`), close a memo to `liaison`, mark its own results as read, set its own status line, and forward a Discord message that the owner wrote (one time for each message). |
+| `MEMO_LIAISON_TOKEN` | The token of the liaison run. It can only read the memos to `liaison`, send a memo to the owner or an event request to `main` (tag `event-request`), answer in the thread of its own memo (`memo note --from liaison`, also with `--text` for a new text of that memo), close a memo to `liaison`, mark its own results as read, set its own status line, and forward a Discord message that the owner wrote (one time for each message). |
 
 To copy the token for a page (macOS), run `sed -n 's/^MEMO_TOKEN=//p' .env | tr -d '\n' | pbcopy` in the directory of this repository.
 
@@ -96,12 +96,13 @@ A memo to the owner has two buttons:
 - **Send** puts the text of the field in the thread of the memo, as a turn of the owner. The memo goes back to its agent: its state changes to `waiting`, and it leaves the list. It shows in the folded section "Waiting for agents (n)" with the state "waits for <agent>". The agent answers in the same memo (`memo note` or `memo edit`). The memo then comes back to the list, at its place in the order, with the tag "updated" and the state "waits for you". The memo keeps its id, so the agent sends no new memo for a follow-up. Command-Return is Send.
 - **Done** ends the memo (the state changes to `closed`). The text in the field, if any, goes with it. Done also works on a memo that waits for its agent. Thus Done with a text is a reply and a close in one step.
 
-The turns of the thread (the table `notes`) show on the card under "Details", oldest first, with the author and the time. The Chat page and the Desk show them too. A memo from before threads keeps its look: its notes are its turns, and a replied or closed memo shows its reply as before.
+The turns of the thread (the table `notes`) show on the card under "Details", oldest first, with the author and the time. The Chat page and the Desk show them too. A long thread folds: the card shows the last turn of the owner and the last answer of the agent after it. The older turns fold into a button "N earlier turns", which shows them in place (no request to the server). Nothing is deleted. The memo text is the current state, so the earlier turns are seldom necessary. A memo from before threads keeps its look: its notes are its turns, and a replied or closed memo shows its reply as before.
 
 On the side of the agent:
 
 - `memo wait` prints each memo with a new turn of the owner under "Memos from <agent> that wait for your answer", with the name of the memo and the full thread, oldest first. It gives each turn one time. The output limit never cuts these memos.
 - The agent answers with `memo note <id> --from <name> -- "<text>"`, or changes the text with `memo edit <id> -- "<new text>"`. Either one gives the memo back to the owner.
+- `memo note <id> --from <name> --text "<new memo text>" -- "<short answer>"` does the two in one request: the memo text becomes the current state, and the note is the short answer. The two change, or nothing changes. The memo goes back to the owner one time. Only the sender of the memo can give `--text` (`POST /api/note` with the field `memo_text`; the field `text` is the note).
 - `memo ack` refuses a memo that waits for an answer, so that no memo waits for ever. When the owner selects Done, the memo comes under "Results" with its thread, and the agent acks it as before.
 - `memo list --to <agent>` also shows the memos of the agent that still wait for its answer, for a new session.
 
@@ -215,7 +216,7 @@ Open `http://127.0.0.1:3280/log`. It shows what is on its way to each agent, and
 Open `http://127.0.0.1:3280/chat`. It shows the memos between the owner and one agent, in the two directions, as a chat: the oldest at the top, the newest at the bottom. The top line is the status line of the agent.
 
 - The field at the bottom sends a memo from the owner to the agent, as the field of the Inbox does. Return sends; Shift-Return adds a line. The agent gets the memo with `memo wait`.
-- Each memo shows its state (waits for you, waits for the agent, answered, or closed), the turns of its thread, and the reply or the close that ended it. Its number goes to the memo on the Log page. Answer an open memo of the agent in the Inbox.
+- Each memo shows its state (waits for you, waits for the agent, answered, or closed), the turns of its thread (a long thread folds, as in the Inbox), and the reply or the close that ended it. Its number goes to the memo on the Log page. Answer an open memo of the agent in the Inbox.
 - The list has the agents with a session (`long` and `remote`), not the short agents. `/chat?agent=main` opens the chat with `main`. With no name, the page opens the last chat of the device, or the default agent.
 - The page shows the newest 50 memos. "Show older memos" shows 50 more, up to 500. The page loads again each 5 seconds.
 - The page reads `GET /api/thread?agent=<name>&limit=<n>`. The read records no delivery and no "seen". The liaison token cannot read it.
@@ -310,6 +311,7 @@ scripts/memo reply 12 "Yes."
 scripts/memo close 12 "Done."
 scripts/memo edit 12 "A new text for an open memo."
 scripts/memo note 12 --from main -- "The price is $14 each month."
+scripts/memo note 12 --from main --text "Approve the plan? It costs 14 USD each month." -- "The price is in the text."
 scripts/memo send --from main --to owner --impact 3 --effort micro --choices "push,draft,skip" "Push the branch?"
 scripts/memo ack 12
 scripts/memo status --as main "I update the README of the website."

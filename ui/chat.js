@@ -21,3 +21,19 @@ export function stateText(memo, owner) {
 
 // The time of the newest turn of the thread (a note), or the send time when the memo has no notes.
 export const lastTurnAt = (memo) => (memo.notes?.length ? memo.notes.at(-1).created : memo.created);
+
+// The fold of a long thread. The memo text is the current state, so the card shows only the last turn of the owner
+// and the last answer of the agent after it. The older turns fold into one button ("N earlier turns"); nothing is
+// deleted. With no turn of the owner, only the last turn shows. notes: oldest first. owner: the name of the owner.
+// Gives keep (true for each note that shows when the thread is folded) and folded (the number of the other notes).
+export function foldTurns(notes = [], owner) {
+  const keep = notes.map(() => false);
+  if (!notes.length) return { keep, folded: 0 };
+  const mine = notes.findLastIndex((n) => n.author === owner);
+  if (mine >= 0) keep[mine] = true;
+  keep[notes.length - 1] = true;
+  return { keep, folded: keep.filter((k) => !k).length };
+}
+
+// The label of the fold button. open: the earlier turns show.
+export const foldLabel = (folded, open) => `${open ? 'Hide ' : ''}${folded} earlier ${folded === 1 ? 'turn' : 'turns'}`;

@@ -1,6 +1,7 @@
 // Code that the two Memo pages share. All text goes into the page as text nodes, never as markup.
 import { MAX_BYTES, MAX_SIDE, sendsAsIs, fit, withImage, imageNames } from '/ui/attach.js';
 import { openLightbox } from '/ui/lightbox.js';
+import { foldTurns, foldLabel } from '/ui/chat.js';
 
 const KEY = 'memo-token';
 let memory = '';
@@ -194,16 +195,35 @@ window.addEventListener('message', (event) => {
 
 // The turns of the thread of a memo (its notes), oldest first, under the memo text. owner: the name of the owner,
 // shown as "you". render: the Markdown renderer of ui/markdown.js. A turn of the owner that the sender did not get
-// yet says so.
+// yet says so. A long thread folds (foldTurns in ui/chat.js): the older turns are in the page but hidden, and a
+// button shows them in place, with no request to the server. An open thread stays open while the page is loaded,
+// also when a new list comes.
+const openThreads = new Set(); // ids of the memos whose earlier turns show
+let threadCount = 0;
 export function turnsOf(memo, owner, render) {
   const notes = memo.notes || [];
   if (!notes.length) return '';
-  return el('div', { className: 'notes thread', role: 'list', ariaLabel: 'Thread' }, ...notes.map((n) => {
+  const nodes = notes.map((n) => {
     const mine = n.author === owner;
     const node = el('div', { className: mine ? 'note mine' : 'note' },
       el('div', { className: 'who' }, el('b', {}, mine ? 'you' : n.author), ` · ${age(n.created)}${mine && !n.read ? ` · ${memo.sender} did not answer yet` : ''}`),
       el('div', { className: 'md' }, ...render(n.text, el)));
     node.setAttribute('role', 'listitem');
     return node;
-  }));
+  });
+  const list = el('div', { role: 'list', ariaLabel: 'Thread' }, ...nodes);
+  const { keep, folded } = foldTurns(notes, owner);
+  if (!folded) return el('div', { className: 'notes thread' }, list);
+  list.id = `thread-${memo.id}-${++threadCount}`;
+  const toggle = button('', () => show(!openThreads.has(memo.id)), 'Show or hide the earlier turns of the thread');
+  toggle.className = 'fold';
+  toggle.setAttribute('aria-controls', list.id);
+  const show = (open) => {
+    if (open) openThreads.add(memo.id); else openThreads.delete(memo.id);
+    nodes.forEach((node, i) => { node.hidden = !open && !keep[i]; });
+    toggle.textContent = foldLabel(folded, open);
+    toggle.setAttribute('aria-expanded', String(open));
+  };
+  show(openThreads.has(memo.id));
+  return el('div', { className: 'notes thread' }, toggle, list);
 }

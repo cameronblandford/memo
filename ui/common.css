@@ -160,6 +160,9 @@ button:hover { border-color: var(--accent); }
 .thread .note { padding: .3rem .55rem; border-radius: .5rem; background: var(--bg); }
 .thread .note.mine { background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
 .thread .note.mine .who b { color: var(--ink); }
+/* The fold of a long thread: "N earlier turns" shows the older turns in place. */
+.thread .fold { margin: .2rem 0; padding: .15rem .6rem; color: var(--dim); font-size: .8rem; }
+.thread .fold:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* The state of a memo with a thread: "waits for you", or "waits for main" (the owner sent it back). */
 .meta .state { display: inline-block; margin-left: .4rem; padding: 0 .45rem; border: 1px solid var(--line); border-radius: 1rem; font-size: .75rem; line-height: 1.4; white-space: nowrap; }
 .meta .state.away { border-color: var(--warn); color: var(--warn); }

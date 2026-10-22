@@ -503,3 +503,31 @@ test('an old database gets the choices column, and its memos get no buttons', ()
   const s = createStore(openDb(file), { owner: 'cam', names: NAMES });
   assert.deepEqual(s.get(1).choices, []);
 });
+
+// memo note --text: the sender gives the current state as the new memo text, with a short answer as the note.
+test('a note with a new memo text changes the text and adds the note in one step; the memo comes back one time', () => {
+  const { s, id } = withMemo();
+  s.seen([id]);
+  s.note(id, 'cam', 'Add the price, please.');
+  s.news('main');
+  const m = s.note(id, 'main', 'Done: the price is in the text.', { memoText: 'Approve the plan? It costs $14 each month.' });
+  assert.deepEqual([m.text, m.state, m.seen], ['Approve the plan? It costs $14 each month.', 'open', 2]);
+  assert.deepEqual(m.notes.map((n) => [n.author, n.text, n.read]), [['cam', 'Add the price, please.', 1], ['main', 'Done: the price is in the text.', 0]]);
+  assert.deepEqual(s.list('cam').map((c) => c.id), [id]);
+  const kinds = s.events.list({ memo: id }).map((e) => e.kind).reverse();
+  assert.deepEqual(kinds.filter((k) => k === 'note' || k === 'edit'), ['note', 'edit', 'note'], 'one edit and one note, no second return');
+  // Without the text, the note does not change the text.
+  s.note(id, 'cam', 'Thanks.');
+  assert.equal(s.note(id, 'main', 'OK.').text, 'Approve the plan? It costs $14 each month.');
+});
+
+test('only the sender can give a new memo text with a note, and a refused note changes nothing', () => {
+  const { s, id } = withMemo();
+  s.note(id, 'cam', 'Add the price, please.');
+  refusesNote(() => s.note(id, 'cam', 'x', { memoText: 'A text of the owner.' }), 403, 'Only main can change the text');
+  refusesNote(() => s.note(id, 'liaison', 'x', { memoText: 'A text of the liaison.' }), 403, 'Only cam and main');
+  refusesNote(() => s.note(id, 'main', 'x', { memoText: '' }), 400, 'memo text is necessary');
+  refusesNote(() => s.note(id, 'main', 'y'.repeat(4001), { memoText: 'A new text.' }), 400, 'A note must have');
+  const m = s.get(id);
+  assert.deepEqual([m.text, m.state, m.notes.length], ['Approve the plan?', 'waiting', 1]);
+});
