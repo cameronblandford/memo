@@ -287,11 +287,13 @@ function onScreen(node) {
   const shown = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
   return shown >= Math.min(r.height, innerHeight) / 2;
 }
+// A memo of the list that is in the closed fold: it has no card on the screen, but it gets a toast.
+const inClosedFold = (memo) => !oneCard && !foldOpen && isOld(memo) && shownMemos(memos, filter).some((m) => m.id === memo.id);
 function goTo(id) {
+  // A memo in the closed fold has no card until the fold opens.
+  if (!foldOpen && memos.some((c) => c.id === id && isOld(c))) { foldOpen = true; render(); }
   // A toast can be for a memo that the filter hides.
   if (!nodeOf(id) && filter !== 'all' && memos.some((c) => c.id === id)) setFilter('all');
-  // A memo in the closed fold has a node, but no place on the screen.
-  if (!foldOpen && memos.some((c) => c.id === id && isOld(c))) { foldOpen = true; render(); }
   const node = nodeOf(id);
   if (!node) return;
   select(id);
@@ -302,7 +304,7 @@ function goTo(id) {
 const toastNodes = new Map(); // toast key -> node
 let moreNode = null;
 function showToasts() {
-  const open = memos.filter((m) => m.seen !== 1 && !closed.has(toastKey(m)) && nodeOf(m.id) && !onScreen(nodeOf(m.id)));
+  const open = memos.filter((m) => m.seen !== 1 && !closed.has(toastKey(m)) && (nodeOf(m.id) ? !onScreen(nodeOf(m.id)) : inClosedFold(m)));
   const shown = open.slice(0, MAX_TOASTS);
   const keys = new Set(shown.map(toastKey));
   for (const [key, node] of toastNodes) if (!keys.has(key)) { node.remove(); toastNodes.delete(key); }

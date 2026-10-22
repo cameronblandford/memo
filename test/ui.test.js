@@ -304,6 +304,16 @@ test('back from the one-card view, the list keeps the memo of the card, and open
   assert.match(setView, /if \(!card\) nodeOf\(selected\)\?\.scrollIntoView/);
 });
 
+test('a new or updated memo in the closed fold gets a toast, and the toast opens the fold and goes to the memo', async () => {
+  const page = (await get('/inbox')).text;
+  assert.match(page, /const inClosedFold = \(memo\) => !oneCard && !foldOpen && isOld\(memo\) && shownMemos\(memos, filter\)\.some\(\(m\) => m\.id === memo\.id\);/);
+  assert.match(page, /\(nodeOf\(m\.id\) \? !onScreen\(nodeOf\(m\.id\)\) : inClosedFold\(m\)\)/);
+  const goTo = page.slice(page.indexOf('function goTo(id) {'), page.indexOf('\n}\n', page.indexOf('function goTo(id) {')));
+  assert.match(goTo, /if \(!foldOpen && memos\.some\(\(c\) => c\.id === id && isOld\(c\)\)\) \{ foldOpen = true; render\(\); \}/);
+  assert.ok(goTo.indexOf('foldOpen = true') < goTo.indexOf('const node = nodeOf(id)'), 'the fold opens before the toast looks for the card');
+  assert.match(page, /node\.addEventListener\('click', \(\) => goTo\(memo\.id\)\);/);
+});
+
 test('the postpone picker has Tomorrow, Next week, and In a month', async () => {
   const { inAMonth } = await import('../ui/filter.js');
   assert.equal(inAMonth('2026-10-22'), '2026-11-22');
