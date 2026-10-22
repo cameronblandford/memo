@@ -137,8 +137,8 @@ function showPicker(agents) {
   picker.hidden = agents.length < 2;
 }
 
-// stick: go to the newest memo after the render (the first load, a send, a new agent). A stick stays wanted until a
-// render happens, also when a newer load replaces this one.
+// stick: go to the newest memo after the load (the first load, a send, a new agent). A stick stays wanted until a
+// load shows, also when a newer load replaces this one.
 const loads = createLoads();
 let stickWanted = false;
 async function load({ stick = false } = {}) {
@@ -156,10 +156,13 @@ async function load({ stick = false } = {}) {
     field.placeholder = `Message ${agent}`;
     showStatus(data.agents);
     older.hidden = !data.more;
-    const next = JSON.stringify(data.memos);
-    if (next === shown && thread.children.length) return;
-    const follow = stickWanted || nearBottom();
+    // Each load that shows uses up the stick request, also when the thread did not change: a later change must not
+    // jump to the bottom when the owner scrolled up in the meantime.
+    const wanted = stickWanted;
     stickWanted = false;
+    const next = JSON.stringify(data.memos);
+    if (next === shown && thread.children.length) { if (wanted) toBottom(); return; }
+    const follow = wanted || nearBottom();
     shown = next;
     thread.replaceChildren(...(data.memos.length ? data.memos.map(bubble) : [el('p', { className: 'dim' }, `No memos between you and ${agent} yet. Write the first one below.`)]));
     loadImages(thread);

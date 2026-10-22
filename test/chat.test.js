@@ -127,6 +127,10 @@ test('the Chat page sends to the agent of the picker, and its images open in the
   assert.ok(page.includes('const to = picker.value;'));
   assert.ok(page.includes("api('/api/send', { from: OWNER, to, text: field.value })"));
   assert.ok(page.includes('if (!loads.fresh(ticket, agent, data.agent)) return;'));
+  // A load that shows uses up the stick request before the check for an unchanged thread, and scrolls if it was asked.
+  const body = page.slice(page.indexOf('async function load('));
+  assert.ok(body.indexOf('stickWanted = false;') < body.indexOf('if (next === shown'));
+  assert.ok(page.includes('if (next === shown && thread.children.length) { if (wanted) toBottom(); return; }'));
   assert.match((await app.request('/ui/chat.js')).headers.get('content-type'), /javascript/);
   assert.ok((await (await app.request('/ui/common.js')).text()).includes("img.closest('.memo, .bubble')"));
   // The field is fixed at the bottom of the window, and the body keeps room for it.
