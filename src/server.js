@@ -9,6 +9,8 @@ import { createApp } from './app.js';
 import { createImages } from './images.js';
 import { createTicks } from './ticks.js';
 import { localFile } from './paths.js';
+import { createTickets } from './tickets.js';
+import { createLinearSync, DEFAULT_MINUTES } from './linear.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const { MEMO_TOKEN: token, MEMO_LIAISON_TOKEN: liaisonToken, MEMO_OWNER_TOKEN: ownerToken } = process.env;
@@ -35,8 +37,10 @@ const config = loadConfig(localFile(root, 'agents.json'), owner);
 const dbPath = resolve(root, process.env.DATABASE_PATH || './data/memo.db');
 mkdirSync(dirname(dbPath), { recursive: true });
 const db = openDb(dbPath);
+const tickets = createTickets(db, { owner, agents: config.map((a) => a.name) });
 const store = createStore(db, {
   owner,
+  ensureTicket: tickets.ensure,
   names: [owner, 'discord', ...config.map((a) => a.name)],
   forwardTo: config.filter((a) => a.kind !== 'short').map((a) => a.name),
   // A postponed memo comes back at 9:00 in this zone.
@@ -60,10 +64,18 @@ if (login && !['127.0.0.1', '::1', 'localhost'].includes(hostname)) {
 }
 const tailscale = login ? { login, host: tailscaleHost } : undefined;
 const ticksOn = ['1', 'true', 'on', 'yes'].includes(String(process.env.MEMO_TICKS || '').toLowerCase());
-const app = createApp({ store, agents, images, ticks, ticksOn, root, token, liaisonToken, ownerToken, owner, tailscale });
+// Optional: the read-only Linear sync of the Desk. Without the key, the Desk has only the tickets that the agents add.
+const linearMinutes = Number(process.env.LINEAR_SYNC_MINUTES || DEFAULT_MINUTES);
+if (!(linearMinutes >= 1)) {
+  console.error('LINEAR_SYNC_MINUTES must be a number of minutes, 1 or more.');
+  process.exit(1);
+}
+const linear = createLinearSync({ tickets, apiKey: process.env.LINEAR_API_KEY || '', minutes: linearMinutes });
+const app = createApp({ store, agents, images, ticks, tickets, linear, ticksOn, root, token, liaisonToken, ownerToken, owner, tailscale });
 
 const port = Number(process.env.PORT || 3280);
 serve({ fetch: app.fetch, hostname, port }, () => {
   console.log(`Memo listens on http://${hostname}:${port}`);
   agents.resume();
+  linear.start();
 });
