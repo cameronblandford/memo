@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeApp, call, LIAISON_TOKEN, OWNER_TOKEN } from './helpers.js';
+import { createLoads } from '../ui/chat.js';
 
 const CONFIG = [
   { name: 'main', kind: 'long', dir: '~/p', model: 'm' },
@@ -100,4 +101,35 @@ test('the Chat page needs no token, has the content rule, and each page links to
   assert.ok(page.includes("import { render as markdown } from '/ui/markdown.js'"));
   assert.ok(!page.includes('html:'));
   for (const path of ['/inbox', '/agents', '/log']) assert.match(await (await app.request(path)).text(), /href="\/chat"/, path);
+});
+
+test('only the newest load of the Chat page shows, and only for the agent that is selected now', () => {
+  const loads = createLoads();
+  // The refresh for main goes out, then the owner picks mac and a new load goes out. The late answer for main is old.
+  const refresh = loads.start('main');
+  const picked = loads.start('mac');
+  assert.equal(loads.fresh(refresh, 'mac', 'main'), false);
+  assert.equal(loads.fresh(picked, 'mac', 'mac'), true);
+  // The newest request, but the owner changed the agent before its answer came.
+  const late = loads.start('main');
+  assert.equal(loads.fresh(late, 'mac', 'main'), false);
+  // With no agent selected, the answer of the server (its default agent) can show.
+  const first = loads.start('');
+  assert.equal(loads.fresh(first, '', 'main'), true);
+  // An answer for a different agent than the one that the request asked for never shows.
+  const odd = loads.start('mac');
+  assert.equal(loads.fresh(odd, 'mac', 'main'), false);
+});
+
+test('the Chat page sends to the agent of the picker, and its images open in the lightbox with their memo', async () => {
+  const { app } = makeApp();
+  const page = await (await app.request('/chat')).text();
+  assert.ok(page.includes('const to = picker.value;'));
+  assert.ok(page.includes("api('/api/send', { from: OWNER, to, text: field.value })"));
+  assert.ok(page.includes('if (!loads.fresh(ticket, agent, data.agent)) return;'));
+  assert.match((await app.request('/ui/chat.js')).headers.get('content-type'), /javascript/);
+  assert.ok((await (await app.request('/ui/common.js')).text()).includes("img.closest('.memo, .bubble')"));
+  // The field is fixed at the bottom of the window, and the body keeps room for it.
+  assert.match(page, /#say \{ position: fixed;[^}]*bottom: 0;/);
+  assert.ok(page.includes('document.body.style.paddingBottom'));
 });

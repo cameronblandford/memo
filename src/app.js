@@ -16,6 +16,7 @@ const UI = {
   'attach.js': 'text/javascript; charset=utf-8',
   'feedback.js': 'text/javascript; charset=utf-8',
   'working.js': 'text/javascript; charset=utf-8',
+  'chat.js': 'text/javascript; charset=utf-8',
   'lightbox.js': 'text/javascript; charset=utf-8',
   'rule.js': 'text/javascript; charset=utf-8',
   'common.css': 'text/css; charset=utf-8',
