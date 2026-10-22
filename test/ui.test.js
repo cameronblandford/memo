@@ -318,6 +318,7 @@ test('the postpone picker has Tomorrow, Next week, and In a month', async () => 
 test('each memo in the Inbox shows its number in the corner, in the list and on the card', async () => {
   const page = (await get('/inbox')).text;
   assert.match(page, /const numberOf = \(memo\) => el\('span', \{ className: 'num' \}, `#\$\{memo\.id\}`\);/);
+  // The number comes first in the meta line and floats to the top right corner, with the new tag just left of it.
   assert.match(page, /className: 'meta' \}, numberOf\(memo\), tag, el\('span', \{ className: 'sender' \}, memo\.sender\), facts\)/);
   assert.match(page, /className: 'meta' \}, numberOf\(memo\), tag, el\('span', \{ className: 'sender' \}, memo\.sender\), factsOf\(memo\)\)/);
   assert.match((await get('/ui/common.css')).text, /\.meta \.num \{ float: right;[^}]*tabular-nums/);

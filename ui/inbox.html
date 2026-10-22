@@ -79,7 +79,8 @@ function toggleDetails(id) {
 const changedAt = (memo) => (sort === 'updated' && memo.updated && memo.updated !== memo.created ? ` · updated ${age(memo.updated)}` : '');
 // The ticket key of the Desk (for example TFP-797) shows after the facts, when the memo names a ticket.
 const factsOf = (memo) => ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}${changedAt(memo)}${memo.ticket ? ` · ${memo.ticket}` : ''}`;
-// The number of the memo, small and dim at the end of the meta line, so the owner can name the memo in a chat.
+// The number of the memo, small and dim in the top right corner of the card, so the owner can name the memo in a chat.
+// It comes first in the meta line and floats right; the new tag floats just left of it.
 const numberOf = (memo) => el('span', { className: 'num' }, `#${memo.id}`);
 const newTag = (memo) => (memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'));
 const titleOf = (memo) => memo.title || summary(memo.text) || `Memo ${memo.id}`;
