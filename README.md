@@ -246,7 +246,9 @@ scripts/memo image ~/Desktop/shot.png "The new page"
 
 The Discord part is optional. Set the `DISCORD_` variables in `.env` (see `.env.example`), and put the token of your bot in `~/.config/discord-bot-token` with mode 600. A LaunchAgent (`launchd/memo.discord.plist.example`) runs `scripts/discord-watch.py` each 30 seconds. The script sends each new message for your bot as a memo from `discord` to `liaison`, then starts `scripts/run-agent.sh liaison`.
 
-The liaison run has only two commands: `memo` with the restricted token, and the Discord command that `DISCORD_CLI` names. The run cannot send a memo to `main`. For a message that the owner's own Discord account (`DISCORD_OWNER_ID`) wrote, the run can use `memo forward`, which sends the text of that message to `main`.
+The liaison run has only two commands: `memo` with the restricted token, and the Discord command that `DISCORD_CLI` names. The run cannot send a memo to `main`.
+
+Optional: set `MEMO_CALENDAR_MCP_ID` in `.env` to the id of your claude.ai Google Calendar connector. Then the liaison run also gets the five read tools of that connector (`list_events`, `search_events`, `get_event`, `list_calendars`, `suggest_time`). `--strict-mcp-config` stops all other claude.ai connectors, and `--disallowedTools` also denies the calendar write tools (`create_event`, `update_event`, `delete_event`, `respond_to_event`) and the Gmail, Drive, Linear, Notion, and Slack connectors. The liaison cannot make or change an event. It sends a memo to the owner with the details. To other people it tells only if the owner is free or busy. For a message that the owner's own Discord account (`DISCORD_OWNER_ID`) wrote, the run can use `memo forward`, which sends the text of that message to `main`.
 
 Logs: `data/discord-watch.log` and `data/liaison-runs.log`.
 
