@@ -177,3 +177,20 @@ test('the Linear sync changes only the Linear part, and the Backlog has the open
   board = tickets.board();
   assert.ok(board.backlog.some((x) => x.key === 'TFP-45'));
 });
+
+test('threads on the Desk: Send takes the ticket out of Needs you with "waits for", and the answer brings it back with the turns', () => {
+  const { tickets, store } = make();
+  tickets.set('TFP-797', { agent: 'main', state: 'working' }, 'main');
+  const { id } = store.send({ from: 'main', to: 'cam', text: 'Merge the PR?', impact: 3, effort: 'micro', ticket: 'TFP-797' }).memo;
+  assert.deepEqual(group(tickets.board(), 'needs_you'), ['TFP-797']);
+  store.note(id, 'cam', 'Did the tests pass?');
+  let board = tickets.board();
+  assert.deepEqual(group(board, 'needs_you'), []);
+  const t = board.groups.find((g) => g.state === 'working').tickets[0];
+  assert.deepEqual(t.waits.map((w) => [w.id, w.state, w.sender]), [[id, 'waiting', 'main']]);
+  store.note(id, 'main', 'Yes, all 357 pass.');
+  board = tickets.board();
+  const q = board.groups.find((g) => g.state === 'needs_you').tickets[0].question;
+  assert.deepEqual(q.notes.map((n) => [n.author, n.text]), [['cam', 'Did the tests pass?'], ['main', 'Yes, all 357 pass.']]);
+  assert.equal(q.state, 'open');
+});

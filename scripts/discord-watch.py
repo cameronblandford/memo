@@ -4,7 +4,7 @@
 One run reads each text channel once. It sends a memo from `discord` to the agent `liaison`, and starts one short liaison run, for:
   - each message that mentions the bot or replies to a message of the bot, in any channel;
   - each message in a mail channel (DISCORD_MAIL_CHANNELS in .env).
-It also starts a liaison run when the owner answered a memo from the liaison (a reply, a close, or a note) and the
+It also starts a liaison run when the owner answered a memo from the liaison (Done, an old reply, or a Send) and the
 liaison did not ack the answer yet (the news of memo wait, read with peek=1, so it is not a delivery).
 Messages from the bot are ignored. A message from the owner counts only when it mentions the bot or replies to it,
 or when it is in one of DISCORD_OWNER_MAIL_CHANNELS.

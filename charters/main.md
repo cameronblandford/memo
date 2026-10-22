@@ -21,7 +21,12 @@ List here the directories that the agent works in, and the file that it reads fi
 3. If a memo is not clear, select the best default, and continue. Write the default in the text of step 4.
 4. When the work of a memo is complete, run `memo close <id> "<the result in one or two sentences>"`.
 5. When you have no more work that you can do without an answer, run `memo wait --as main` in the background. It uses no tokens. It exits when a new memo arrives or when the owner answers a memo. If memos to you must stay open while you wait, give their ids: `memo wait --as main --hold 12,15`. Without `--hold`, the command exits immediately for those memos.
-6. When `memo wait` exits, read its output and do the work. For each result that it shows, run `memo ack <id>`. If it exits with "No news", run it again.
+6. When `memo wait` exits, read its output and do the work:
+   - "Memos from main that wait for your answer": the owner sent a memo of yours back with a new note. Do what the newest note asks. Then answer in the same memo, as step 7 says. Do not ack these memos. `memo wait` gives each note one time; `memo list --to main` shows the memos that still wait for your answer.
+   - "Results of memos from main": the owner ended a memo of yours (Done, or an old reply). Do what the text asks. Then run the `memo ack <ids>` line that it prints.
+   - "New memos to main": do them as steps 2 to 4 say.
+   If it exits with "No news", run it again.
+7. To answer in a memo that waits for you, run `memo note <id> --from main -- "<answer>"`. To change the text of the memo instead, run `memo edit <id> -- "<new text>"`. Each one sends the memo back to the owner, with the same id. Do not send a new memo for a follow-up on an open memo.
 
 More rules:
 
@@ -39,7 +44,7 @@ Memo is the only channel to the owner. The owner reads the memos on the Inbox pa
 - Work that only the owner can do (a login, a signature, a payment): the same command. Give the exact steps or the exact command.
 - Read `impact.md` in the Memo directory before your first memo. It defines the impact levels and the effort sizes. The effort is the time of the owner, not your time.
 - One question for each memo. The owner must be able to answer in one line. Give your recommendation. If you continue on a default, say which default.
-- When the answer is one of a few words, give them as buttons: `--choices "push,draft,skip"`. The Inbox shows one button for each word, and a tap replies with that word. The owner can still write a longer reply.
+- When the answer is one of a few words, give them as buttons: `--choices "push,draft,skip"`. The Inbox shows one button for each word. A tap sends that word to you as a note, and the memo waits for your answer. The owner can still write a longer text.
 - Write the full context into the memo. The owner reads it with no knowledge of your session.
 - You can use Markdown in a memo: `**bold**`, lists, `code`, and links. The Inbox shows it. Put the question or the action in bold on the first line. Use a list for options.
 - For a checklist that the owner ticks, write list items with a box: `- [ ] Rain jacket`. The Inbox shows a check box and saves each tick in the memo text.
@@ -48,7 +53,8 @@ Memo is the only channel to the owner. The owner reads the memos on the Inbox pa
 - To show the owner a screenshot or a picture, run `memo image <path> "<what it shows>"` and put the line that it prints into the memo text. The file must be a PNG, JPEG, GIF, or WebP image of 5 MB or less. An image address on the internet shows only as a link.
 - Give `--due` only for a real deadline.
 - To correct or improve the text of an open memo, run `memo edit <id> -- "<new text>"`. Do not send the memo again.
-- The owner can add a note to a memo and leave it open, to ask for a change or for more data. `memo wait` shows these memos under "with a new note". A note is an instruction from The owner, as a reply is. Do what it asks. Then answer in the same memo with `memo note <id> --from main "<text>"`, or change the text with `memo edit` if the note asks for a different text. If no answer is necessary, run `memo ack <id>`. Do not send a new memo for the answer to a note.
+- A memo to the owner is a thread. The owner answers with Send, which adds a note and sends the memo back to you, or with Done, which ends the memo. A note is an instruction from the owner, as a reply is. Do what it asks. Then answer in the same memo with `memo note <id> --from main -- "<text>"`, or change the text with `memo edit` if the note asks for a different text. The memo then goes back to the owner. Always answer: the memo waits for you until you answer. Give the result in one or two sentences, for example "Pushed. PR #12.". Do not send a new memo for the answer to a note. Do not start the answer with "You replied".
+- After Done, the memo is closed. If you need one more answer after Done, send a new memo with the full context.
 - If the Claude Code permission check blocks a command that your work needs, ask for a rule: `memo rule --from main --rule 'Bash(npm test:*)' --why '<one line>'`. Ask for the smallest rule that does the work. Do not change a Claude Code settings file yourself. The owner approves the rule in the Inbox, and `memo wait` gives you the result. The rule applies in your next session.
 - `memo send` can print corrections that the owner made to the impact of your memos. Use them when you select the next impact.
 - Do not ask a question that has an answer in a file, in the code, or in an earlier memo.

@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { serve } from '@hono/node-server';
-import { makeApp, TOKEN, ROOT, CONFIG } from './helpers.js';
+import { makeApp, TOKEN, LIAISON_TOKEN, ROOT, CONFIG } from './helpers.js';
 
 const run = promisify(execFile);
 const CLI = join(ROOT, 'scripts', 'memo.mjs');
@@ -139,13 +139,13 @@ test('wait exits with code 0 and prints the news when news exists', () => withSe
   assert.match(r.stdout, /memo ack 2/);
 }));
 
-test('wait prints the reply first and only the name of the own memo, not its full text', () => withServer(async ({ memo, store }) => {
+test('wait prints only the name of the own memo, not its full text, and then the reply', () => withServer(async ({ memo, store }) => {
   const long = `Approve the plan?\n\n${'detail '.repeat(1000)}THE-END-OF-MY-TEXT`;
   store.send({ from: 'main', to: 'cam', text: long, impact: 3, effort: 'micro' });
   store.reply(1, 'Yes, go.');
   const r = await memo(['wait', '--as', 'main', '1']);
   assert.equal(r.code, 0);
-  assert.match(r.stdout, /#1 from main to cam, .*, replied\nReply: Yes, go\.\nYour memo: Approve the plan\?\n/);
+  assert.match(r.stdout, /#1 from main to cam, .*, replied\nYour memo: Approve the plan\?\nReply: Yes, go\.\n/);
   assert.doesNotMatch(r.stdout, /THE-END-OF-MY-TEXT/);
   assert.match(r.stdout, /memo ack 1\n/);
 }));
@@ -258,4 +258,72 @@ test('memo rule sends a memo to the owner with the rule in a code block and the 
   assert.match((await memo(['rule', '--from', 'main', '--rule', 'Bash(a)\nBash(b)', '--why', 'x'], { MEMO_OWNER: 'cam' })).stderr, /one line/);
   assert.match((await memo(['rule', '--from', 'main', '--why', 'x'])).stderr, /--rule is necessary/);
   assert.match((await memo(['rule', '--from', 'main', '--rule', 'WebSearch'])).stderr, /--why is necessary/);
+}));
+
+// Threads: the owner sends a memo back (a note), and the agent answers in the same memo.
+test('wait gives a memo that the owner sent back one time, with the full thread in order; the answer returns it', () => withServer(async ({ memo, store }) => {
+  store.send({ from: 'main', to: 'cam', text: `Approve the plan?\n\n${'detail '.repeat(200)}`, title: 'The plan', impact: 3, effort: 'micro' });
+  store.note(1, 'cam', 'What does it cost?');
+  store.news('main');
+  store.note(1, 'main', '$14 each month.');
+  store.note(1, 'cam', 'Is there a yearly price?');
+  const r = await memo(['wait', '--as', 'main', '1']);
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /Memos from main that wait for your answer\./);
+  assert.match(r.stdout, /#1 from main to cam, .*, waits for your answer\nYour memo: The plan\nNote from cam, [^\n]*: What does it cost\?\nNote from main, [^\n]*: \$14 each month\.\nNote from cam, [^\n]*\(not read\): Is there a yearly price\?\n/);
+  assert.match(r.stdout, /memo note <id> --from main -- "<text>"/);
+  assert.doesNotMatch(r.stdout, /memo ack/);
+  // Each turn comes one time.
+  const again = await memo(['wait', '--as', 'main', '0.01']);
+  assert.equal(again.code, 2);
+  // memo list still shows the memos that wait for an answer.
+  assert.match((await memo(['list', '--to', 'main'])).stdout, /Memos from main that wait for your answer:\n\n#1 from main to cam/);
+  assert.match((await memo(['ack', '1'])).stderr, /waits for your answer/);
+  assert.match((await memo(['note', '1', '--from', 'main', '--', 'Yes: $140 each year.'])).stdout, /Memo 1 has the note\. It is in the Inbox of cam again\./);
+  assert.deepEqual([store.get(1).state, store.get(1).seen], ['open', 2]);
+  assert.doesNotMatch((await memo(['list', '--to', 'main'])).stdout, /wait for your answer/);
+}));
+
+test('a new turn is never cut by the output limit; the other memos wait for the next memo wait', () => withServer(async ({ memo, store }) => {
+  store.send({ from: 'main', to: 'cam', text: 'Question one?', impact: 3, effort: 'micro' }); // 1
+  store.reply(1, `Answer: ${'x'.repeat(3000)}`);
+  store.send({ from: 'main', to: 'cam', text: 'Question two?', impact: 3, effort: 'micro' }); // 2
+  store.note(2, 'cam', `Turn: ${'y'.repeat(3000)}`);
+  store.send({ from: 'main', to: 'cam', text: 'Question three?', impact: 3, effort: 'micro' }); // 3
+  store.note(3, 'cam', `Turn: ${'z'.repeat(3000)}`);
+  const r = await memo(['wait', '--as', 'main', '1'], { MEMO_WAIT_MAX_CHARS: '1000' });
+  assert.match(r.stdout, /y{3000}/);
+  assert.match(r.stdout, /z{3000}/);
+  assert.doesNotMatch(r.stdout, /x{3000}/);
+  assert.match(r.stdout, /1 more: /);
+  assert.match((await memo(['wait', '--as', 'main', '1'])).stdout, /Results of memos from main:[\s\S]*x{3000}/);
+}));
+
+test('old replied and closed memos still show: the reply after the name of the memo', () => withServer(async ({ memo, store }) => {
+  store.send({ from: 'main', to: 'cam', text: 'Deploy?', impact: 3, effort: 'micro' }); // 1
+  store.reply(1, 'Yes.');
+  store.send({ from: 'main', to: 'cam', text: 'Old question', impact: 3, effort: 'micro' }); // 2
+  store.close(2, 'Not now.');
+  const r = await memo(['wait', '--as', 'main', '1']);
+  assert.match(r.stdout, /#1 from main to cam, [^\n]*, replied\nYour memo: Deploy\?\nReply: Yes\.\n/);
+  assert.match(r.stdout, /#2 from main to cam, [^\n]*, closed\nYour memo: Old question\nClosed with: Not now\.\n/);
+  assert.match(r.stdout, /memo ack 1 2/);
+}));
+
+test('the liaison flow with its restricted token: results, a memo sent back, the answer, and new mail', () => withServer(async ({ memo, store }) => {
+  const as = { MEMO_TOKEN: LIAISON_TOKEN };
+  const ask = (await memo(['send', '--from', 'liaison', '--to', 'cam', '--impact', '4', '--effort', 'micro', 'Send this draft to Ana?'], as)).stdout.match(/Memo (\d+)/)[1];
+  const info = (await memo(['send', '--from', 'liaison', '--to', 'cam', '--impact', '2', '--effort', 'short', 'A new kit.'], as)).stdout.match(/Memo (\d+)/)[1];
+  store.close(Number(ask), 'Yes, send it.'); // Done with text
+  store.note(Number(info), 'cam', 'Which version?'); // Send
+  store.send({ from: 'discord', to: 'liaison', text: 'Hello bot' });
+  const r = await memo(['wait', '--as', 'liaison', '0.1'], as);
+  assert.match(r.stdout, /Results of memos from liaison:[\s\S]*Closed with: Yes, send it\.[\s\S]*memo ack 1\n/);
+  assert.match(r.stdout, /Memos from liaison that wait for your answer\.[\s\S]*Note from cam[^\n]*: Which version\?/);
+  assert.match(r.stdout, /New memos to liaison:[\s\S]*Hello bot/);
+  assert.match((await memo(['ack', ask], as)).stdout, /Marked as read/);
+  assert.match((await memo(['note', info, '--from', 'liaison', '--', 'Version 2.'], as)).stdout, /in the Inbox of cam again/);
+  assert.equal(store.get(Number(info)).state, 'open');
+  assert.match((await memo(['close', '3', 'Answered in Discord.'], as)).stdout, /closed/);
+  assert.equal((await memo(['wait', '--as', 'liaison', '0.01'], as)).code, 2);
 }));

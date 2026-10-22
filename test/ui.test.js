@@ -149,11 +149,11 @@ test('an attached image is a Markdown line at the end of the text', () => {
 test('the send buttons show a spinner, then a check mark, and do not send two times', async () => {
   const inbox = (await get('/inbox')).text;
   assert.match(inbox, /send\(sendButton, async \(\) => \{/);
-  assert.match(inbox, /button\('Reply', \(b\) => reply\(memo, area\.value, b\)/);
-  // Each caller of reply, addNote, and close gives a button: the key Command-Return gives the Reply button.
+  assert.match(inbox, /button\('Send', \(b\) => reply\(memo, area\.value, b\)/);
+  // Each caller of reply and close gives a button: the key Command-Return gives the Send button.
   assert.match(inbox, /reply\(memo, area\.value, sendButtons\[0\]\)/);
   assert.doesNotMatch(inbox, /reply\(memo, area\.value\)/);
-  assert.doesNotMatch(inbox, /addNote\(memo, area\.value\)/);
+  assert.doesNotMatch(inbox, /addNote/, 'Send replaces Reply and Note');
   assert.doesNotMatch(inbox, /close\(memo\)/);
   assert.match((await get('/ui/feedback.js')).type, /javascript/);
   const css = (await get('/ui/common.css')).text;
@@ -223,16 +223,17 @@ test('the Inbox keys do not act behind the lightbox, and draft thumbnails are no
   assert.match(common, /draft \|\| !i\.closest\('\.thumbs'\)/);
 });
 
-test('each card shows the name, the next step, and the buttons; the full text and the notes open under Details', async () => {
+test('each card shows the name, the next step, the buttons, and the thread; the full text opens under Details', async () => {
   const page = (await get('/inbox')).text;
   const card = page.slice(page.indexOf('function view(memo) {'), page.indexOf('// The text of a memo, with its check boxes'));
   assert.ok(card.length > 100);
   assert.match(card, /el\('div', \{ className: 'name' \}, titleOf\(memo\)\),\n    nextOf\(memo\),/);
-  assert.match(card, /choicesOf\(memo\),\n    detailsOf\(memo, asked\),/);
-  assert.doesNotMatch(card, /bodyOf\(|notesOf\(/, 'the text and the notes are only in Details');
+  assert.match(card, /choicesOf\(memo\),\n    detailsOf\(memo, asked\),\n    threadOf\(memo\),/);
+  assert.doesNotMatch(card, /bodyOf\(|notesOf\(/, 'the text is only in Details');
   assert.match(page, /const titleOf = \(memo\) => memo\.title \|\| summary\(memo\.text\) \|\| `Memo \$\{memo\.id\}`;/);
   assert.match(page, /el\('details', \{ className: 'details', open: openDetails\.has\(memo\.id\) \},\n    el\('summary', \{\}, 'Details'/);
-  assert.match(page, /bodyOf\(memo, asked\),\n    notesOf\(memo\)\);/);
+  assert.match(page, /el\('summary', \{\}, 'Details'\),\n    bodyOf\(memo, asked, readOnly\)\);/);
+  assert.match(page, /const threadOf = \(memo\) => turnsOf\(memo, OWNER, markdown\);/);
   // The key o opens or closes the Details of the selected memo, in the list and on the card.
   assert.match(page, /else if \(event\.key === 'o'\) toggleDetails\(selected\);/);
   assert.match(page, /else if \(event\.key === 'o'\) toggleDetails\(cardId\);/);
@@ -251,15 +252,41 @@ test('Collapse, Shorten, and the compact view are gone', async () => {
   for (const name of ['main.md', 'liaison.md']) assert.doesNotMatch(read('charters', name), /compact/);
 });
 
-test('the answer buttons: one button for each choice of the sender, and a tap replies with that word', async () => {
+test('the answer buttons: one button for each choice of the sender, and a tap sends that word (Send)', async () => {
   const page = (await get('/inbox')).text;
   assert.match(page, /const choicesOf = \(memo, onDone\) => \(memo\.choices\?\.length \? el\('div', \{ className: 'choices'/);
-  assert.match(page, /\.\.\.memo\.choices\.map\(\(word\) => button\(word, \(b\) => send\(b, async \(\) => \{ await api\('\/api\/reply', \{ id: memo\.id, text: word \}\);/);
-  // On the card of the one-card view too, where the reply counts in the summary.
+  assert.match(page, /\.\.\.memo\.choices\.map\(\(word\) => button\(word, \(b\) => send\(b, async \(\) => \{ await api\('\/api\/note', \{ id: memo\.id, from: OWNER, text: word \}\);/);
+  // On the card of the one-card view too, where the answer counts in the summary.
   const card = page.slice(page.indexOf('function cardView('), page.indexOf('function summaryView('));
-  assert.match(card, /choicesOf\(memo, done\('Replied'\)\)/);
-  // The free reply stays.
-  assert.match(page, /button\('Reply', \(b\) => reply\(memo, area\.value, b\)/);
+  assert.match(card, /choicesOf\(memo, done\('Sent'\)\)/);
+  // The free text stays.
+  assert.match(page, /button\('Send', \(b\) => reply\(memo, area\.value, b\)/);
+});
+
+test('threads: Send is a note of the owner, Done is a close, and the memos that wait show in their own section', async () => {
+  const page = (await get('/inbox')).text;
+  const reply = page.slice(page.indexOf('const reply = '), page.indexOf('const close = '));
+  assert.match(reply, /api\('\/api\/note', \{ id: memo\.id, from: OWNER, text \}\)/);
+  assert.doesNotMatch(page, /'\/api\/reply'/, 'the Inbox never ends a memo with a reply');
+  assert.match(page, /button\('Done', \(b\) => close\(memo, b\), 'End the memo\. The text in the field goes with it\.'\)/);
+  assert.match(page, /<section id="waiting" hidden>/);
+  assert.match(page, /waitingToggle\.textContent = `Waiting for agents \(\$\{waitingMemos\.length\}\)`;/);
+  assert.match(page, /waitingMemos = data\.waiting \|\| \[\];/);
+  // A memo that waits shows its thread read-only, with Done.
+  const wait = page.slice(page.indexOf('function waitingView('), page.indexOf('function showWaiting('));
+  assert.match(wait, /detailsOf\(memo, parseRule\(memo\.text\), true\)/);
+  assert.match(wait, /threadOf\(memo\)/);
+  assert.match(wait, /button\('Done', \(b\) => close\(memo, b\)/);
+  const { stateText, lastTurnAt } = await import('../ui/chat.js');
+  const m = { sender: 'main', recipient: 'cam', created: 'a' };
+  assert.equal(stateText({ ...m, state: 'open' }, 'cam'), 'waits for you');
+  assert.equal(stateText({ ...m, state: 'waiting' }, 'cam'), 'waits for main');
+  assert.equal(stateText({ sender: 'cam', recipient: 'main', state: 'open' }, 'cam'), 'waits for main');
+  assert.equal(stateText({ ...m, state: 'replied' }, 'cam'), 'answered', 'an old replied memo');
+  assert.equal(stateText({ ...m, state: 'closed' }, 'cam'), 'closed');
+  assert.equal(lastTurnAt(m), 'a');
+  assert.equal(lastTurnAt({ ...m, notes: [{ created: 'b' }, { created: 'c' }] }), 'c');
+  assert.match((await get('/ui/common.css')).text, /\.meta \.state\.away \{ border-color: var\(--warn\); color: var\(--warn\); \}/);
 });
 
 test('the fold: memos with no change for 5 days go to the bottom, and Close all asks in the page', async () => {
@@ -314,7 +341,7 @@ test('a new or updated memo in the closed fold gets a toast, and the toast opens
   assert.match(page, /node\.addEventListener\('click', \(\) => goTo\(memo\.id\)\);/);
 });
 
-test('one action in flight for each memo: a choice, Reply, Note, Close, and Approve rule lock the whole card', async () => {
+test('one action in flight for each memo: a choice, Send, Done, and Approve rule lock the whole card', async () => {
   const page = (await get('/inbox')).text;
   const send = page.slice(page.indexOf('async function send('), page.indexOf('\n}\n', page.indexOf('async function send(')));
   assert.match(send, /if \(memoId !== null && inFlight\.has\(memoId\)\) return;/);
@@ -326,9 +353,8 @@ test('one action in flight for each memo: a choice, Reply, Note, Close, and Appr
   assert.match(page, /const lockScope = \(buttonNode\) => buttonNode\?\.closest\('\.deck'\) \|\| buttonNode\?\.closest\('\.memo'\) \|\| buttonNode\?\.parentNode;/);
   assert.doesNotMatch(send, /buttonNode\?\.parentNode\?\.querySelectorAll/);
   // Each action of a memo gives its id.
-  assert.match(page, /`Replied "\$\{word\}" to \$\{memo\.sender\}`, memo\.id\)/);
-  assert.match(page, /`Reply sent to \$\{memo\.sender\}`, memo\.id\);/);
-  assert.match(page, /`Note sent to \$\{memo\.sender\}`, memo\.id\);/);
+  assert.match(page, /`Sent "\$\{word\}" to \$\{memo\.sender\}`, memo\.id\)/);
+  assert.match(page, /`Sent to \$\{memo\.sender\}\. It comes back with the answer`, memo\.id\);/);
   assert.match(page, /drafts\.delete\(memo\.id\); onDone\?\.\(\); \}, '', memo\.id\);/);
   assert.match(page, /`Rule added for \$\{asked\.agent\}`, memo\.id\)/);
 });
@@ -348,8 +374,8 @@ test('each memo in the Inbox shows its number in the corner, in the list and on 
   const page = (await get('/inbox')).text;
   assert.match(page, /const numberOf = \(memo\) => el\('span', \{ className: 'num' \}, `#\$\{memo\.id\}`\);/);
   // The number comes first in the meta line and floats to the top right corner, with the new tag just left of it.
-  assert.match(page, /className: 'meta' \}, numberOf\(memo\), tag, el\('span', \{ className: 'sender' \}, memo\.sender\), facts\)/);
-  assert.match(page, /className: 'meta' \}, numberOf\(memo\), tag, el\('span', \{ className: 'sender' \}, memo\.sender\), factsOf\(memo\)\)/);
+  assert.match(page, /className: 'meta' \}, numberOf\(memo\), tag, el\('span', \{ className: 'sender' \}, memo\.sender\), facts, stateOf\(memo\)\)/);
+  assert.match(page, /className: 'meta' \}, numberOf\(memo\), tag, el\('span', \{ className: 'sender' \}, memo\.sender\), factsOf\(memo\), stateOf\(memo\)\)/);
   assert.match((await get('/ui/common.css')).text, /\.meta \.num \{ float: right;[^}]*tabular-nums/);
 });
 
@@ -377,7 +403,7 @@ test('the Inbox has a List / One card switch that the device keeps', async () =>
   assert.match(page, /function render\(\) \{\n  const list = shown\(\);/);
 });
 
-test('a swipe and the arrow keys only go to another card; Reply, Close, and Later are buttons', async () => {
+test('a swipe and the arrow keys only go to another card; Answer, Done, and Later are buttons', async () => {
   const page = (await get('/inbox')).text;
   const swipe = page.slice(page.indexOf('function bindSwipe(card)'), page.indexOf('function deckButton('));
   assert.ok(swipe.length > 100);
@@ -387,9 +413,10 @@ test('a swipe and the arrow keys only go to another card; Reply, Close, and Late
   assert.match(page, /event\.key === 'ArrowRight' \|\| event\.key === 'j'\) \{ event\.preventDefault\(\); return cardMove\(1\); \}/);
   assert.match(page, /event\.key === 'ArrowLeft' \|\| event\.key === 'k'\) \{ event\.preventDefault\(\); return cardMove\(-1\); \}/);
   const card = page.slice(page.indexOf('function cardView('), page.indexOf('function summaryView('));
-  for (const label of ['Reply', 'Close', 'Later', 'Skip']) assert.match(card, new RegExp(`deckButton\\('${label}'`));
-  assert.match(card, /close\(memo, b, done\('Closed'\)\)/);
-  assert.match(card, /reply\(memo, area\.value, b, done\('Replied'\)\)/);
+  for (const label of ['Answer', 'Send', 'Done', 'Later', 'Skip']) assert.match(card, new RegExp(`deckButton\\('${label}'`));
+  assert.match(card, /close\(memo, b, done\('Done'\)\)/);
+  assert.match(card, /reply\(memo, area\.value, b, done\('Sent'\)\)/);
+  assert.match(card, /threadOf\(memo\)/);
   assert.match(card, /postponePicker\(memo, done\('Later'\)\)/);
   assert.match(card, /deckButton\('Skip', 'skip', \(\) => cardMove\(1\)/);
   // The card shows the memo as the list does: the text, check boxes, images, and notes under Details, and the rule box.

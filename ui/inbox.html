@@ -21,6 +21,10 @@
 </form>
 <main id="queue"></main>
 <p id="empty" class="dim" hidden>No memos need you now.</p>
+<section id="waiting" hidden>
+  <button id="waiting-toggle" type="button" aria-expanded="false" title="The memos that you sent back. Each one comes back here with the answer of its agent">Waiting for agents</button>
+  <div id="waiting-list" hidden></div>
+</section>
 <section id="later" hidden>
   <button id="later-toggle" type="button" aria-expanded="false">Postponed</button>
   <div id="later-list" hidden></div>
@@ -30,9 +34,10 @@
   <div id="sent" role="status" aria-live="polite"></div>
   <div id="work"></div>
 </div>
-<footer>Keys: j and k select a memo. In the one-card view, the left and right arrows (or j and k) go to the previous and the next card, and a swipe does the same; nothing changes until you use a button. o opens or closes the Details (the full text) of the selected memo. + and - change the impact. w shows the work memos or all memos. Command-Return sends the reply. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
+<footer>Keys: j and k select a memo. In the one-card view, the left and right arrows (or j and k) go to the previous and the next card, and a swipe does the same; nothing changes until you use a button. o opens or closes the Details (the full text) of the selected memo. + and - change the impact. w shows the work memos or all memos. Send gives the memo back to its agent with your text, and the memo comes back here with the answer. Done ends the memo; the text in the field goes with it. Command-Return is Send. In the capture field, Return sends and Shift-Return adds a line. To attach an image, use the picture icon in the field, paste, or drop the file.</footer>
 <script type="module">
-import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach } from '/ui/common.js';
+import { api, el, button, tokenForm, note, age, loadImages, themeVars, attach, turnsOf } from '/ui/common.js';
+import { stateText, lastTurnAt } from '/ui/chat.js';
 import { render as markdown, summary } from '/ui/markdown.js';
 import { enterSends, fieldHeight } from '/ui/keys.js';
 import { withFeedback } from '/ui/feedback.js';
@@ -43,8 +48,10 @@ import { swipeStep } from '/ui/lightbox.js';
 
 const queue = document.getElementById('queue');
 const capture = document.getElementById('capture');
-const drafts = new Map(); // memo id -> reply text that is not sent
+const drafts = new Map(); // memo id -> text in the field that is not sent
+const OWNER = '__OWNER__';
 let memos = [];
+let waitingMemos = []; // the memos that the owner sent back: each one waits for its agent
 let ticks = []; // the small actions of now, each with `before`: the id of the memo below it
 let selected = null;
 let postponedCount = 0;
@@ -57,16 +64,14 @@ function select(id) {
   for (const node of queue.querySelectorAll('.memo')) node.classList.toggle('selected', Number(node.dataset.id) === id);
 }
 
-// The card of a memo shows its name, the next step, and the buttons. The full text and the notes open under
-// "Details" (a tap, or the key o for the selected memo). An open Details stays open while the page is loaded, also
-// when a new list comes.
+// The card of a memo shows its name, the next step, the buttons, and the thread: the turns after the memo text, oldest
+// first. The full text opens under "Details" (a tap, or the key o for the selected memo). An open Details stays open
+// while the page is loaded, also when a new list comes. readOnly: the check boxes do not change (a memo that waits).
 const openDetails = new Set(); // ids of the memos whose Details are open
-function detailsOf(memo, asked) {
-  const notes = (memo.notes || []).length;
+function detailsOf(memo, asked, readOnly = false) {
   const box = el('details', { className: 'details', open: openDetails.has(memo.id) },
-    el('summary', {}, 'Details', notes ? ` · ${notes} ${notes === 1 ? 'note' : 'notes'}` : ''),
-    bodyOf(memo, asked),
-    notesOf(memo));
+    el('summary', {}, 'Details'),
+    bodyOf(memo, asked, readOnly));
   box.addEventListener('toggle', () => { if (box.open) openDetails.add(memo.id); else openDetails.delete(memo.id); });
   return box;
 }
@@ -83,28 +88,30 @@ const factsOf = (memo) => ` impact ${memo.impact} · ${memo.effort}${memo.due ? 
 // It comes first in the meta line and floats right; the new tag floats just left of it.
 const numberOf = (memo) => el('span', { className: 'num' }, `#${memo.id}`);
 const newTag = (memo) => (memo.seen === 1 ? '' : el('span', { className: 'tag' }, memo.seen === 2 ? 'updated' : 'new'));
+// The state of a memo with a thread: "waits for you", or "waits for main" for a memo that the owner sent back.
+const stateOf = (memo) => (memo.notes?.length || memo.state === 'waiting' ? el('span', { className: memo.state === 'waiting' ? 'state away' : 'state' }, stateText(memo, OWNER)) : '');
+const threadOf = (memo) => turnsOf(memo, OWNER, markdown);
 const titleOf = (memo) => memo.title || summary(memo.text) || `Memo ${memo.id}`;
 const nextOf = (memo) => (memo.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), memo.next) : '');
-// The answer buttons that the sender gave (memo send --choices). A tap replies with that word, like Reply.
+// The answer buttons that the sender gave (memo send --choices). A tap sends that word, like Send.
 // onDone: as for reply.
 const choicesOf = (memo, onDone) => (memo.choices?.length ? el('div', { className: 'choices', role: 'group', ariaLabel: 'Answers' },
-  ...memo.choices.map((word) => button(word, (b) => send(b, async () => { await api('/api/reply', { id: memo.id, text: word }); drafts.delete(memo.id); onDone?.(); }, `Replied "${word}" to ${memo.sender}`, memo.id),
-    `Reply "${word}" to ${memo.sender}. The memo leaves your Inbox.`))) : '');
+  ...memo.choices.map((word) => button(word, (b) => send(b, async () => { await api('/api/note', { id: memo.id, from: OWNER, text: word }); drafts.delete(memo.id); onDone?.(); }, `Sent "${word}" to ${memo.sender}`, memo.id),
+    `Send "${word}" to ${memo.sender}. The memo goes to ${memo.sender} and comes back with the answer.`))) : '');
 
 function view(memo) {
-  const area = el('textarea', { rows: 2, placeholder: 'Reply', value: drafts.get(memo.id) || '' });
-  area.setAttribute('aria-label', `Reply to memo ${memo.id}`);
+  const area = el('textarea', { rows: 2, placeholder: `Answer ${memo.sender}`, value: drafts.get(memo.id) || '' });
+  area.setAttribute('aria-label', `Answer to memo ${memo.id}`);
   area.addEventListener('input', () => drafts.set(memo.id, area.value));
   area.addEventListener('focus', () => select(memo.id));
   area.addEventListener('keydown', (event) => {
-    // Command-Return sends the reply, with the same signs on the Reply button as a click.
+    // Command-Return is Send, with the same signs on the Send button as a click.
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.repeat) { event.preventDefault(); reply(memo, area.value, sendButtons[0]); }
   });
   const thumbs = el('div', { className: 'thumbs', hidden: true });
   const sendButtons = [
-    button('Reply', (b) => reply(memo, area.value, b), 'Send the answer. The memo leaves your Inbox.'),
-    ...(noNotes(memo) ? [] : [button('Note', (b) => addNote(memo, area.value, b), 'Send the text to the agent. The memo stays open in your Inbox.')]),
-    button('Close', (b) => close(memo, b), 'Close the memo. The text in the reply field goes with it.'),
+    button('Send', (b) => reply(memo, area.value, b), `Send the text to ${memo.sender}. The memo goes to ${memo.sender} and comes back here with the answer. Key: Command-Return`),
+    button('Done', (b) => close(memo, b), 'End the memo. The text in the field goes with it.'),
   ];
   const facts = factsOf(memo);
   // A memo of memo rule: the marker line goes away, and the rule of the marker shows with the Approve rule button.
@@ -115,7 +122,7 @@ function view(memo) {
   const laterPanel = postponePicker(memo);
   const toggle = (panel, other) => { other.hidden = true; panel.hidden = !panel.hidden; if (!panel.hidden) panel.querySelector('input, button')?.focus(); };
   const node = el('article', { className: memo.id === selected ? 'memo selected' : 'memo' },
-    el('div', { className: 'meta' }, numberOf(memo), tag, el('span', { className: 'sender' }, memo.sender), facts),
+    el('div', { className: 'meta' }, numberOf(memo), tag, el('span', { className: 'sender' }, memo.sender), facts, stateOf(memo)),
     el('div', { className: 'name' }, titleOf(memo)),
     nextOf(memo),
     el('div', { className: 'chips' },
@@ -131,6 +138,7 @@ function view(memo) {
     asked ? ruleBox(memo, asked) : '',
     choicesOf(memo),
     detailsOf(memo, asked),
+    threadOf(memo),
     // The buttons that send are off while an image goes to the server.
     attach(area, thumbs, (busy) => { for (const b of sendButtons) b.disabled = busy; }),
     thumbs,
@@ -146,12 +154,31 @@ function view(memo) {
 }
 
 // The text of a memo, with its check boxes and images. A memo that quotes Discord text gets no frame.
-const bodyOf = (memo, asked) => el('div', { className: 'md' }, ...markdown(asked ? withoutMarker(memo.text) : memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: (n, on, box) => check(memo.id, n, on, box) }));
-// The notes of the memo: messages between the owner and the sender while the memo is open.
-const notesOf = (memo) => (memo.notes?.length ? el('div', { className: 'notes' }, ...memo.notes.map((n) => el('div', { className: 'note' },
-  el('div', { className: 'who' }, el('b', {}, n.author), ` · ${age(n.created)}${n.author === '__OWNER__' && !n.read ? ' · not read yet' : ''}`),
-  el('div', { className: 'md' }, ...markdown(n.text, el))))) : '');
-const noNotes = (memo) => ['liaison', 'discord'].includes(memo.sender);
+const bodyOf = (memo, asked, readOnly = false) => el('div', { className: 'md' }, ...markdown(asked ? withoutMarker(memo.text) : memo.text, el, { html: !['liaison', 'discord'].includes(memo.sender), vars: themeVars(), onCheck: readOnly ? undefined : (n, on, box) => check(memo.id, n, on, box) }));
+
+// The memos that the owner sent back: a folded section under the list. Each one shows its thread and "waits for
+// <agent>". Done ends a memo also while it waits. The memo comes back to the list when the agent answers.
+const waitingBox = document.getElementById('waiting');
+const waitingToggle = document.getElementById('waiting-toggle');
+const waitingList = document.getElementById('waiting-list');
+function waitingView(memo) {
+  const node = el('article', { className: 'memo away' },
+    el('div', { className: 'meta' }, numberOf(memo), el('span', { className: 'sender' }, memo.sender), ` sent back ${age(lastTurnAt(memo))}`, stateOf(memo)),
+    el('div', { className: 'name' }, titleOf(memo)),
+    detailsOf(memo, parseRule(memo.text), true),
+    threadOf(memo),
+    el('div', { className: 'row' }, button('Done', (b) => close(memo, b), `End the memo now. ${memo.sender} gets it as closed.`)));
+  node.dataset.waiting = memo.id;
+  return node;
+}
+function showWaiting() {
+  waitingBox.hidden = !waitingMemos.length;
+  waitingToggle.textContent = `Waiting for agents (${waitingMemos.length})`;
+  waitingToggle.setAttribute('aria-expanded', String(!waitingList.hidden));
+  waitingList.replaceChildren(...(waitingList.hidden ? [] : waitingMemos.map(waitingView)));
+  loadImages(waitingList);
+}
+waitingToggle.addEventListener('click', () => { waitingList.hidden = !waitingList.hidden; showWaiting(); });
 
 // The rule of a memo rule request, as the server reads it from the marker, and the Approve rule button. The click
 // sends this exact rule; the server refuses it if the memo changed. The server writes the rule, never the agent.
@@ -389,8 +416,8 @@ function setSort(next) {
 sortMenu.addEventListener('change', () => { setSort(sortMenu.value); sortMenu.blur(); });
 
 // The one-card view: one memo at a time, in the order and with the filter of the list. A swipe, the arrow keys,
-// Skip, and Back only go to another card: they change nothing. Reply, Close, and Later are buttons, so a slip of
-// the finger cannot answer, close, or postpone a memo. The device keeps the choice, like the filter.
+// Skip, and Back only go to another card: they change nothing. Answer (then Send), Done, and Later are buttons, so a
+// slip of the finger cannot answer, close, or postpone a memo. The device keeps the choice, like the filter.
 const VIEW_KEY = 'memo-view';
 let oneCard = false;
 try { oneCard = localStorage.getItem(VIEW_KEY) === 'card'; } catch { /* a private window: the list */ }
@@ -483,24 +510,23 @@ function cardView(memo, list, at) {
     cardEnter = 'next';
     replyOpen = null;
   };
-  const area = el('textarea', { rows: 4, placeholder: `Reply to ${memo.sender}`, value: drafts.get(memo.id) || '' });
-  area.setAttribute('aria-label', `Reply to memo ${memo.id}`);
+  const area = el('textarea', { rows: 4, placeholder: `Answer ${memo.sender}`, value: drafts.get(memo.id) || '' });
+  area.setAttribute('aria-label', `Answer to memo ${memo.id}`);
   area.addEventListener('input', () => drafts.set(memo.id, area.value));
   area.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.repeat) { event.preventDefault(); reply(memo, area.value, sendButtons[0], done('Replied')); }
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.repeat) { event.preventDefault(); reply(memo, area.value, sendButtons[0], done('Sent')); }
   });
   const thumbs = el('div', { className: 'thumbs', hidden: true });
   const sendButtons = [
-    deckButton('Send reply', 'send', (b) => reply(memo, area.value, b, done('Replied')), 'Send the answer. The memo leaves your Inbox. Key: Command-Return', true),
-    ...(noNotes(memo) ? [] : [button('Note', (b) => addNote(memo, area.value, b), 'Send the text to the agent. The memo stays open in your Inbox.')]),
+    deckButton('Send', 'send', (b) => reply(memo, area.value, b, done('Sent')), `Send the text to ${memo.sender}. The memo comes back with the answer. Key: Command-Return`, true),
   ];
   const replyBox = el('div', { className: 'reply-box', hidden: replyOpen !== memo.id },
     attach(area, thumbs, (busy) => { for (const b of sendButtons) b.disabled = busy; }),
     thumbs,
     el('div', { className: 'row' }, ...sendButtons, el('span', { className: 'spacer' }),
-      button('Cancel', () => { replyBox.hidden = true; replyOpen = null; replyButton.focus(); }, 'Close the reply box. Your text stays for later.')));
+      button('Cancel', () => { replyBox.hidden = true; replyOpen = null; replyButton.focus(); }, 'Close the box. Your text stays for later.')));
   const laterPanel = postponePicker(memo, done('Later'));
-  const replyButton = deckButton('Reply', 'reply', () => {
+  const replyButton = deckButton('Answer', 'reply', () => {
     laterPanel.hidden = true;
     replyBox.hidden = !replyBox.hidden;
     replyOpen = replyBox.hidden ? null : memo.id;
@@ -509,12 +535,13 @@ function cardView(memo, list, at) {
   const card = el('article', { className: `memo card${cardEnter && !reducedMotion() ? ` enter-${cardEnter}` : ''}` },
     el('span', { className: 'swipe-hint back', ariaHidden: 'true' }, '‹ Back'),
     el('span', { className: 'swipe-hint next', ariaHidden: 'true' }, 'Next ›'),
-    el('div', { className: 'meta' }, numberOf(memo), tag, el('span', { className: 'sender' }, memo.sender), factsOf(memo)),
+    el('div', { className: 'meta' }, numberOf(memo), tag, el('span', { className: 'sender' }, memo.sender), factsOf(memo), stateOf(memo)),
     el('h2', { className: 'card-title' }, titleOf(memo)),
     nextOf(memo),
     asked ? ruleBox(memo, asked) : '',
-    choicesOf(memo, done('Replied')),
+    choicesOf(memo, done('Sent')),
     detailsOf(memo, asked),
+    threadOf(memo),
     replyBox,
     laterPanel);
   card.dataset.id = memo.id;
@@ -523,7 +550,7 @@ function cardView(memo, list, at) {
   if (tag) watch.observe(card);
   const buttons = el('div', { className: 'deck-btns' },
     replyButton,
-    deckButton('Close', 'close', (b) => close(memo, b, done('Closed')), 'Close the memo. The text in the reply box goes with it.'),
+    deckButton('Done', 'close', (b) => close(memo, b, done('Done')), 'End the memo. The text in the answer box goes with it.'),
     deckButton('Later', 'later', () => {
       replyBox.hidden = true;
       replyOpen = null;
@@ -539,7 +566,7 @@ function cardView(memo, list, at) {
 
 // The end of the cards: what happened to each memo, and the memos that are still in the Inbox.
 function summaryView(list) {
-  const groups = ['Replied', 'Closed', 'Later'].map((what) => [what, handled.filter((h) => h.what === what)]).filter(([, items]) => items.length);
+  const groups = ['Sent', 'Done', 'Later'].map((what) => [what, handled.filter((h) => h.what === what)]).filter(([, items]) => items.length);
   return el('section', { className: 'memo card summary', ariaLabel: 'Summary' },
     el('h2', { className: 'card-title' }, list.length ? 'That was the last card' : 'Inbox clear'),
     el('p', { className: 'dim' }, handled.length
@@ -647,6 +674,7 @@ function render() {
   const empty = document.getElementById('empty');
   empty.textContent = filtered ? 'No memos with this filter need you now.' : 'No memos need you now.';
   empty.hidden = list.length > 0 || rows.length > 0 || (oneCard && handled.length > 0);
+  showWaiting();
   laterBox.hidden = !postponedCount;
   laterToggle.textContent = `Postponed (${postponedCount})`;
 }
@@ -696,8 +724,9 @@ async function load({ list = true } = {}) {
     for (const t of data.ticks) doneTicks.delete(t.id);
     const nextTicks = [...data.ticks, ...[...doneTicks.values()]];
     // A new render makes each frame again and runs its script again, so render only when the list changed.
-    const changed = JSON.stringify([next, nextTicks, data.postponed]) !== JSON.stringify([memos, ticks, postponedCount]) || !queue.children.length;
+    const changed = JSON.stringify([next, nextTicks, data.postponed, data.waiting]) !== JSON.stringify([memos, ticks, postponedCount, waitingMemos]) || !queue.children.length;
     memos = next;
+    waitingMemos = data.waiting || [];
     ticks = nextTicks;
     postponedCount = data.postponed || 0;
     if (data.timeZone) zone = data.timeZone;
@@ -712,8 +741,8 @@ async function run(action) {
 // Sends with a sign on the button: a spinner while the request is out, then a check mark, then the new list.
 // A failure shows the error and keeps the text and the images in the field.
 // sentText: the text of the toast after the server stored the memo, for example "Sent to main".
-// memoId: the memo that the action answers. One memo has one action in flight at most: while a choice, Reply, Note,
-// Close, or Approve rule of a memo is out, a second one for the same memo does nothing (also from a key, or from a
+// memoId: the memo that the action answers. One memo has one action in flight at most: while a choice, Send, Done,
+// or Approve rule of a memo is out, a second one for the same memo does nothing (also from a key, or from a
 // card that a refresh made again), and all buttons of its card are off (in the one-card view: the card and its
 // buttons under it). After a failure they come back.
 const inFlight = new Set(); // ids of the memos with an action in flight
@@ -735,15 +764,13 @@ async function send(buttonNode, action, sentText, memoId = null) {
     for (const b of others) b.disabled = false;
   }
 }
-// onDone: runs after the server has the answer, before the new list (the one-card view counts it).
+// Send: the text is a new turn in the thread of the memo. The memo goes to its sender and leaves the list until the
+// answer comes. onDone: runs after the server has the text, before the new list (the one-card view counts it).
 const reply = (memo, text, buttonNode, onDone) => {
-  if (!text.trim()) return note('Write a reply first.');
-  return send(buttonNode, async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); onDone?.(); }, `Reply sent to ${memo.sender}`, memo.id);
+  if (!text.trim()) return note('Write a text first. To end the memo with no text, use Done.');
+  return send(buttonNode, async () => { await api('/api/note', { id: memo.id, from: OWNER, text }); drafts.delete(memo.id); onDone?.(); }, `Sent to ${memo.sender}. It comes back with the answer`, memo.id);
 };
-const addNote = (memo, text, buttonNode) => {
-  if (!text.trim()) return note('Write a note first.');
-  return send(buttonNode, async () => { await api('/api/note', { id: memo.id, from: '__OWNER__', text }); drafts.delete(memo.id); }, `Note sent to ${memo.sender}`, memo.id);
-};
+// Done: the memo ends. The text in the field, if any, goes with it.
 const close = (memo, buttonNode, onDone) => send(buttonNode, async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); onDone?.(); }, '', memo.id);
 const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta }));
 

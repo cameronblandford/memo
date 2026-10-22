@@ -63,7 +63,7 @@ test('in flight shows the answers that the agent did not ack and the notes that 
   assert.deepEqual(main.memos.map((m) => [m.id, m.stage, m.delivered]), [[1, 'result', null], [2, 'note', null]]);
   s.news('main'); // main gets the answer and the note
   s.ack(1);
-  s.ack(2);
+  s.note(2, 'main', 'The price is $14.'); // the answer: memo 2 goes back to cam
   assert.deepEqual(s.inflight().find((a) => a.name === 'main').memos, []);
   assert.equal(s.inflight().some((a) => a.name === 'cam' || a.name === 'discord'), false);
 });

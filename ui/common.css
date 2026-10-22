@@ -156,6 +156,16 @@ button:hover { border-color: var(--accent); }
 .notes .who { color: var(--dim); font-size: .8rem; }
 .notes .who b { color: var(--accent); }
 .notes .md { margin: .1rem 0 0; }
+/* The thread of a memo: the turns after the memo text. The turns of the owner have the panel color with a tint. */
+.thread .note { padding: .3rem .55rem; border-radius: .5rem; background: var(--bg); }
+.thread .note.mine { background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
+.thread .note.mine .who b { color: var(--ink); }
+/* The state of a memo with a thread: "waits for you", or "waits for main" (the owner sent it back). */
+.meta .state { display: inline-block; margin-left: .4rem; padding: 0 .45rem; border: 1px solid var(--line); border-radius: 1rem; font-size: .75rem; line-height: 1.4; white-space: nowrap; }
+.meta .state.away { border-color: var(--warn); color: var(--warn); }
+#waiting { margin-top: 1rem; }
+#waiting-toggle { color: var(--dim); font-size: .9rem; }
+#waiting-list .memo { margin-top: .5rem; }
 .rule { margin: .6rem 0; padding: .6rem .75rem; border: 1px solid var(--accent); border-radius: .5rem; }
 .rule .who { color: var(--dim); font-size: .85rem; }
 .rule .who b { color: var(--accent); }

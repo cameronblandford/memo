@@ -36,6 +36,11 @@
 .question .next b { color: var(--accent); font-weight: 600; }
 .question textarea { margin: .45rem 0; }
 .question .md { font-size: .95rem; }
+.question .row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+/* A memo of the ticket that the owner sent back: one line with its state. */
+.waits { margin: .4rem 0 0; color: var(--dim); font-size: .85rem; overflow-wrap: anywhere; }
+.waits b { color: var(--warn); font-weight: 600; }
+.waits a { color: var(--accent); }
 .start { display: flex; gap: .4rem; margin-top: .5rem; }
 .start select { flex: 1; min-width: 0; }
 #sync { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; }
@@ -53,7 +58,8 @@
 <main id="board"></main>
 <footer><p id="sync"></p><p>One ticket is one task of an agent. An agent sets the state with memo ticket set. A ticket is in Needs you when an open memo to you names it. Memo never writes to Linear: an agent proposes a Linear change in a memo with the tag linear-draft. The page loads again each 10 seconds.</p></footer>
 <script type="module">
-import { api, el, button, tokenForm, note, age, loadImages } from '/ui/common.js';
+import { api, el, button, tokenForm, note, age, loadImages, turnsOf } from '/ui/common.js';
+import { stateText } from '/ui/chat.js';
 import { render as markdown } from '/ui/markdown.js';
 
 const counts = document.getElementById('counts');
@@ -80,22 +86,27 @@ function setFilter(value) {
 
 function questionView(t) {
   const q = t.question;
-  const area = el('textarea', { rows: 2, placeholder: `Reply to ${q.sender}`, value: drafts.get(q.id) || '' });
-  area.setAttribute('aria-label', `Reply to memo ${q.id}`);
+  const area = el('textarea', { rows: 2, placeholder: `Answer ${q.sender}`, value: drafts.get(q.id) || '' });
+  area.setAttribute('aria-label', `Answer to memo ${q.id}`);
   area.addEventListener('input', () => drafts.set(q.id, area.value));
-  const reply = button('Reply', async (b) => {
-    if (!area.value.trim()) return note('Write a reply first.');
+  // Send: a new turn in the thread; the memo goes to the agent and comes back with the answer. Done: the memo ends,
+  // with the text in the field, if any.
+  const act = (path, body, b) => async () => {
     b.disabled = true;
-    try { await api('/api/reply', { id: q.id, text: area.value }); drafts.delete(q.id); note(''); shown = ''; await load(); } catch (error) { note(error.message); } finally { b.disabled = false; }
-  }, 'Send the answer. The memo leaves your Inbox.');
+    try { await api(path, body()); drafts.delete(q.id); note(''); shown = ''; await load(); } catch (error) { note(error.message); } finally { b.disabled = false; }
+  };
+  const reply = button('Send', (b) => (area.value.trim() ? act('/api/note', () => ({ id: q.id, from: '__OWNER__', text: area.value }), b)() : note('Write a text first. To end the memo with no text, use Done.')),
+    `Send the text to ${q.sender}. The memo comes back with the answer.`);
+  const done = button('Done', (b) => act('/api/close', () => ({ id: q.id, text: area.value.trim() ? area.value : undefined }), b)(), 'End the memo. The text in the field goes with it.');
   const body = el('details', {}, el('summary', {}, 'Show the memo'), el('div', { className: 'md' }, ...markdown(q.text || '', el)));
   return el('div', { className: 'question' },
     el('div', { className: 'q-head' }, el('b', {}, q.tags.includes('linear-draft') ? 'Linear draft' : 'Question'), ` from ${q.sender} · ${age(q.created)} · `,
       el('a', { href: `/log?memo=${q.id}`, title: 'This memo on the Log page' }, `#${q.id}`),
+      q.notes.length ? ` · ${stateText(q, '__OWNER__')}` : '',
       t.questions > 1 ? ` · ${t.questions - 1} more in the Inbox` : ''),
     el('div', { className: 'q-title' }, el('a', { href: `/chat?agent=${encodeURIComponent(q.sender)}`, title: `The chat with ${q.sender}` }, q.title)),
     q.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), q.next) : '',
-    body, area, el('div', { className: 'row' }, reply, el('a', { href: '/inbox', className: 'dim' }, 'Open the Inbox')));
+    body, turnsOf(q, '__OWNER__', markdown), area, el('div', { className: 'row' }, reply, done, el('a', { href: '/inbox', className: 'dim' }, 'Open the Inbox')));
 }
 
 function card(t, group) {
@@ -113,6 +124,7 @@ function card(t, group) {
     who,
     t.summary ? el('p', { className: 'summary' }, t.summary) : '',
     t.question ? questionView(t) : '',
+    ...t.waits.map((w) => el('p', { className: 'waits' }, el('b', {}, stateText(w, '__OWNER__')), ' · ', el('a', { href: `/log?memo=${w.id}`, title: 'This memo on the Log page' }, `#${w.id}`), ` ${w.title}`)),
     el('div', { className: 'links' },
       t.pr_url ? link(t.pr_url, t.pr_number ? `PR #${t.pr_number}` : 'PR', 'The pull request') : '',
       link(t.url, 'Linear', 'The issue in Linear'),

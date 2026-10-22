@@ -190,7 +190,7 @@ The server starts the agent again after a restart of the Mac, if the user starte
 
 ## Step 10: Tell the user how to use it
 
-- **The Inbox** (`http://127.0.0.1:3280/inbox`): the memos from the agent, the most important first. Reply, Close, or Note (a note asks for a change and keeps the memo open).
+- **The Inbox** (`http://127.0.0.1:3280/inbox`): the memos from the agent, the most important first. Send (the text goes to the agent, and the memo comes back with the answer) or Done (the memo ends; a text in the field goes with it).
 - **The field at the top** sends a task to the agent.
 - **The Agents page** (`http://127.0.0.1:3280/agents`): Start and Stop the agent, and its status line.
 - The agent works only while the Mac is on and awake.

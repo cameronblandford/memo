@@ -10,3 +10,14 @@ export function createLoads() {
     fresh: (ticket, agent, answered) => ticket.n === last && ticket.agent === agent && (agent === '' || answered === agent),
   };
 }
+
+// The state of a memo in words, for the Inbox, the Chat page, and the Desk. A memo is a thread: an open memo waits for
+// its recipient, and a memo that the owner sent back ('waiting') waits for its sender. owner: the name of the owner.
+export function stateText(memo, owner) {
+  if (memo.state === 'open') return memo.recipient === owner ? 'waits for you' : `waits for ${memo.recipient}`;
+  if (memo.state === 'waiting') return memo.sender === owner ? 'waits for you' : `waits for ${memo.sender}`;
+  return memo.state === 'replied' ? 'answered' : 'closed';
+}
+
+// The time of the newest turn of the thread (a note), or the send time when the memo has no notes.
+export const lastTurnAt = (memo) => (memo.notes?.length ? memo.notes.at(-1).created : memo.created);

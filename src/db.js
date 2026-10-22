@@ -15,7 +15,7 @@ export function openDb(path = ':memory:') {
       recipient TEXT NOT NULL,
       text TEXT NOT NULL,
       reply TEXT,
-      state TEXT NOT NULL DEFAULT 'open',   -- 'open' | 'replied' | 'closed'
+      state TEXT NOT NULL DEFAULT 'open',   -- 'open' | 'waiting' (the owner sent it back to the sender) | 'replied' | 'closed'
       impact INTEGER,                       -- 1 to 5, only for a memo to the owner
       effort TEXT,                          -- a key of WEIGHTS, only for a memo to the owner
       due TEXT,                             -- YYYY-MM-DD
