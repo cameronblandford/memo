@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memo Chat</title>
+<link rel="stylesheet" href="/ui/common.css">
+<style>
+header { flex-wrap: wrap; align-items: center; row-gap: .4rem; }
+#agent { max-width: 10rem; padding: .15rem 1.6rem .15rem .6rem; border-radius: 1rem; font-size: .9rem; background-position: right .85rem center, right .55rem center; background-size: .35rem .35rem; }
+#status { margin: -.4rem 0 .75rem; overflow-wrap: anywhere; }
+#status b { color: var(--accent); }
+#older { display: block; margin: 0 auto .75rem; padding: .2rem .8rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
+/* A bubble for each memo. The memos of the owner are at the right, the memos of the agent at the left. */
+.bubble { width: fit-content; min-width: 8rem; max-width: 88%; margin: 0 0 .75rem; padding: .55rem .8rem; background: var(--panel); border: 1px solid var(--line); border-radius: .9rem .9rem .9rem .25rem; }
+.bubble.mine { margin-left: auto; border-color: var(--accent); border-radius: .9rem .9rem .25rem .9rem; background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
+.bubble .meta { display: flex; flex-wrap: wrap; gap: 0 .4rem; }
+.bubble .meta a { margin-left: auto; color: var(--dim); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.bubble .md { margin: .25rem 0 0; }
+.bubble .md > :last-child { margin-bottom: 0; }
+.bubble .notes { margin-top: .45rem; }
+/* The answer that ended the memo: a reply, or a close with or with no text. */
+.answer { margin-top: .5rem; padding-top: .4rem; border-top: 1px dashed var(--line); }
+.answer .who, .bubble .notes .who { color: var(--dim); font-size: .8rem; }
+.answer .who b { color: var(--accent); }
+.state { color: var(--dim); font-size: .8rem; }
+.state.open { color: var(--warn); }
+/* The field stays at the bottom of the window while the thread scrolls. */
+#say { position: sticky; bottom: 0; z-index: 5; flex-wrap: wrap; align-items: flex-end; margin: 0 -1rem; padding: .6rem 1rem calc(.6rem + env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--line); }
+#say textarea { margin: 0; resize: none; }
+#say .thumbs { order: -1; }
+#thread { min-height: 30vh; }
+a:focus-visible, button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible, .attach:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+footer { margin: .75rem 0 0; }
+</style>
+</head>
+<body>
+<header><h1>Chat</h1><select id="agent" aria-label="Agent" title="The agent of this chat"></select><a href="/inbox">Inbox</a><a href="/agents">Agents</a><a href="/log">Log</a></header>
+<form id="token-form" hidden>
+  <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
+  <button>Save</button>
+</form>
+<p id="status" class="dim"></p>
+<p id="note" role="status" hidden></p>
+<button id="older" type="button" hidden>Show older memos</button>
+<main id="thread"></main>
+<footer>Each message is a memo from you to the agent. The agent gets it with memo wait. The thread shows the memos between you and the agent, in the two directions. Answer a memo of the agent in the Inbox. Return sends and Shift-Return adds a line. The page loads again each 5 seconds.</footer>
+<form id="say">
+  <div class="thumbs" hidden></div>
+  <textarea name="text" rows="1" placeholder="Message" autocomplete="off" required aria-label="Message"></textarea>
+  <button>Send</button>
+</form>
+<script type="module">
+import { api, el, tokenForm, note, age, loadImages, attach } from '/ui/common.js';
+import { render as markdown } from '/ui/markdown.js';
+import { enterSends, fieldHeight } from '/ui/keys.js';
+import { withFeedback } from '/ui/feedback.js';
+import { workState } from '/ui/working.js';
+import { parseRule, withoutMarker } from '/ui/rule.js';
+import { shownNotes } from '/ui/filter.js';
+
+const OWNER = '__OWNER__';
+const AGENT_KEY = 'memo-chat-agent';
+const STEP = 50; // memos for each "Show older"
+const thread = document.getElementById('thread');
+const picker = document.getElementById('agent');
+const statusLine = document.getElementById('status');
+const older = document.getElementById('older');
+const say = document.getElementById('say');
+const field = say.elements.text;
+const sendButton = say.querySelector('button');
+
+// The agent of the chat: from the address (/chat?agent=main), then from the last choice of this device, then the
+// default agent of the server. A name that the server does not know changes to the default agent.
+let agent = new URLSearchParams(location.search).get('agent') || '';
+if (!agent) try { agent = localStorage.getItem(AGENT_KEY) || ''; } catch { /* a private window */ }
+let limit = STEP;
+let shown = ''; // the memos of the last render, so the page renders only when they change
+let names = '';
+
+const time = (iso) => new Date(iso).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const when = (iso) => el('span', { title: time(iso) }, age(iso));
+const text = (memo) => (parseRule(memo.text) ? withoutMarker(memo.text) : memo.text);
+
+function stateOf(memo) {
+  if (memo.state === 'open') return memo.recipient === OWNER ? 'waits for you' : `waits for ${memo.recipient}`;
+  return memo.state === 'replied' ? 'answered' : 'closed';
+}
+
+// The end of the memo: the reply, or the close, of its recipient.
+function answer(memo) {
+  if (memo.state === 'open') return '';
+  const verb = memo.state === 'replied' ? 'replied' : 'closed it';
+  return el('div', { className: 'answer' },
+    el('div', { className: 'who' }, el('b', {}, memo.recipient), ` ${verb} · `, when(memo.closed || memo.created)),
+    memo.reply ? el('div', { className: 'md' }, ...markdown(memo.reply, el)) : '');
+}
+
+function bubble(memo) {
+  const mine = memo.sender === OWNER;
+  const notes = shownNotes(memo);
+  // The number goes to the history of the memo on the Log page. An open memo to the owner also has a link to the Inbox.
+  const links = [el('a', { href: `/log?memo=${memo.id}`, title: 'The history of this memo on the Log page' }, `#${memo.id}`)];
+  if (memo.recipient === OWNER && memo.state === 'open') links.unshift(el('a', { href: '/inbox', title: 'Answer this memo in the Inbox' }, 'Inbox'));
+  const node = el('article', { className: mine ? 'bubble mine' : 'bubble' },
+    el('div', { className: 'meta' },
+      el('span', { className: 'sender' }, mine ? 'you' : memo.sender), el('span', {}, '·'), when(memo.created),
+      el('span', { className: memo.state === 'open' ? 'state open' : 'state' }, stateOf(memo)), ...links),
+    el('div', { className: 'md' }, ...markdown(text(memo), el)),
+    notes.length ? el('div', { className: 'notes' }, ...notes.map((n) => el('div', { className: 'note' },
+      el('div', { className: 'who' }, el('b', {}, n.author === OWNER ? 'you' : n.author), ' · ', when(n.created)),
+      el('div', { className: 'md' }, ...markdown(n.text, el))))) : '',
+    answer(memo));
+  node.dataset.id = memo.id;
+  return node;
+}
+
+const nearBottom = () => innerHeight + scrollY >= document.documentElement.scrollHeight - 120;
+const toBottom = () => scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+
+function showStatus(agents) {
+  const a = agents.find((x) => x.name === agent);
+  if (!a) { statusLine.textContent = ''; return; }
+  const work = workState(a);
+  statusLine.replaceChildren(el('b', {}, a.name), ` · ${a.status || 'No status yet'}`,
+    a.updated ? ' · ' : '', a.updated ? when(a.updated) : '',
+    work?.state === 'queued' ? ` · queued (${work.count})` : '');
+}
+
+function showPicker(agents) {
+  const list = agents.map((a) => a.name).join(',');
+  if (list === names) return;
+  names = list;
+  picker.replaceChildren(...agents.map((a) => el('option', { value: a.name }, a.name)));
+  picker.hidden = agents.length < 2;
+}
+
+// stick: go to the newest memo after the render (the first load, a send, a new agent).
+async function load({ stick = false } = {}) {
+  try {
+    // With no agent, the server takes its default agent.
+    const data = await api(`/api/thread?${new URLSearchParams(agent ? { agent, limit } : { limit })}`);
+    note('');
+    agent = data.agent;
+    showPicker(data.agents);
+    picker.value = agent;
+    field.placeholder = `Message ${agent}`;
+    showStatus(data.agents);
+    older.hidden = !data.more;
+    const next = JSON.stringify(data.memos);
+    if (next === shown && thread.children.length) return;
+    const follow = stick || nearBottom();
+    shown = next;
+    thread.replaceChildren(...(data.memos.length ? data.memos.map(bubble) : [el('p', { className: 'dim' }, `No memos between you and ${agent} yet. Write the first one below.`)]));
+    loadImages(thread);
+    if (follow) toBottom();
+  } catch (error) {
+    // The agent of the address or of the device is not in agents.json (any more): take the default agent.
+    if (/^agent must be one of/.test(error.message) && agent) { agent = ''; return load({ stick: true }); }
+    note(error.message);
+  }
+}
+
+function choose(name) {
+  agent = name;
+  limit = STEP;
+  shown = '';
+  try { localStorage.setItem(AGENT_KEY, name); } catch { /* the choice stays in memory */ }
+  history.replaceState(null, '', `/chat?agent=${encodeURIComponent(name)}`);
+  load({ stick: true });
+}
+picker.addEventListener('change', () => choose(picker.value));
+older.addEventListener('click', () => { limit = Math.min(500, limit + STEP); load(); });
+
+// The field grows with its text, to 40% of the window height.
+function grow() {
+  field.style.height = 'auto';
+  field.style.height = `${fieldHeight(field.scrollHeight + field.offsetHeight - field.clientHeight, innerHeight * 0.4)}px`;
+}
+field.addEventListener('input', grow);
+attach(field, say.querySelector('.thumbs'), (busy) => { sendButton.disabled = busy; });
+field.addEventListener('keydown', (event) => {
+  if (!enterSends(event, matchMedia('(pointer: coarse)').matches)) return;
+  event.preventDefault();
+  say.requestSubmit();
+});
+// The Send button is off while the memo goes out, so a second Return does not send the text again.
+say.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!field.value.trim()) return note('Write a message first.');
+  if (!agent) return note('The list of agents did not load. Load the page again.');
+  try {
+    const sent = await withFeedback(sendButton, async () => {
+      await api('/api/send', { from: OWNER, to: agent, text: field.value });
+      field.value = '';
+      field.dispatchEvent(new Event('input'));
+    });
+    if (sent) await load({ stick: true });
+  } catch (error) {
+    note(error instanceof TypeError ? 'Not sent: the server did not answer. Your text is still in the field. Try again.' : error.message);
+  }
+});
+
+tokenForm(() => load({ stick: true }));
+load({ stick: true });
+setInterval(load, 5000);
+</script>
+</body>
+</html>
