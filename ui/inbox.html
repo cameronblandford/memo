@@ -88,7 +88,7 @@ const nextOf = (memo) => (memo.next ? el('div', { className: 'next' }, el('b', {
 // The answer buttons that the sender gave (memo send --choices). A tap replies with that word, like Reply.
 // onDone: as for reply.
 const choicesOf = (memo, onDone) => (memo.choices?.length ? el('div', { className: 'choices', role: 'group', ariaLabel: 'Answers' },
-  ...memo.choices.map((word) => button(word, (b) => send(b, async () => { await api('/api/reply', { id: memo.id, text: word }); drafts.delete(memo.id); onDone?.(); }, `Replied "${word}" to ${memo.sender}`),
+  ...memo.choices.map((word) => button(word, (b) => send(b, async () => { await api('/api/reply', { id: memo.id, text: word }); drafts.delete(memo.id); onDone?.(); }, `Replied "${word}" to ${memo.sender}`, memo.id),
     `Reply "${word}" to ${memo.sender}. The memo leaves your Inbox.`))) : '');
 
 function view(memo) {
@@ -158,7 +158,7 @@ const noNotes = (memo) => ['liaison', 'discord'].includes(memo.sender);
 function ruleBox(memo, asked) {
   const problem = asked.agent !== memo.sender ? `This memo is from ${memo.sender}, but the rule is for ${asked.agent}. It cannot be approved.`
     : ruleAgents && !ruleAgents.has(asked.agent) ? `agents.json has no settings file for ${asked.agent}, so this rule cannot be approved here.` : '';
-  const approve = button(problem ? 'Cannot approve' : 'Approve rule', (b) => send(b, () => api('/api/rule/approve', { id: memo.id, rule: asked.rule }), `Rule added for ${asked.agent}`),
+  const approve = button(problem ? 'Cannot approve' : 'Approve rule', (b) => send(b, () => api('/api/rule/approve', { id: memo.id, rule: asked.rule }), `Rule added for ${asked.agent}`, memo.id),
     `Add this rule to permissions.allow in the settings file of ${asked.agent}. The memo closes, and ${asked.agent} gets the result.`);
   approve.disabled = !!problem;
   return el('div', { className: 'rule' },
@@ -712,27 +712,39 @@ async function run(action) {
 // Sends with a sign on the button: a spinner while the request is out, then a check mark, then the new list.
 // A failure shows the error and keeps the text and the images in the field.
 // sentText: the text of the toast after the server stored the memo, for example "Sent to main".
-async function send(buttonNode, action, sentText) {
-  // The other buttons of the same memo are off for that time: a Close during a Reply must not send a second request.
-  const others = [...(buttonNode?.parentNode?.querySelectorAll('button') || [])].filter((b) => b !== buttonNode && !b.disabled);
+// memoId: the memo that the action answers. One memo has one action in flight at most: while a choice, Reply, Note,
+// Close, or Approve rule of a memo is out, a second one for the same memo does nothing (also from a key, or from a
+// card that a refresh made again), and all buttons of its card are off (in the one-card view: the card and its
+// buttons under it). After a failure they come back.
+const inFlight = new Set(); // ids of the memos with an action in flight
+// The deck first: in the one-card view, Close, Later, and Skip are under the card, not in it.
+const lockScope = (buttonNode) => buttonNode?.closest('.deck') || buttonNode?.closest('.memo') || buttonNode?.parentNode;
+async function send(buttonNode, action, sentText, memoId = null) {
+  if (memoId !== null && inFlight.has(memoId)) return;
+  if (buttonNode?.disabled) return;
+  if (memoId !== null) inFlight.add(memoId);
+  const others = [...(lockScope(buttonNode)?.querySelectorAll('button') || [])].filter((b) => b !== buttonNode && !b.disabled);
   for (const b of others) b.disabled = true;
   try {
     if (await withFeedback(buttonNode, async () => { await action(); note(''); if (sentText) sentToast(sentText); })) await load();
   } catch (error) {
     // The browser gives a TypeError when the request did not get to the server.
     note(error instanceof TypeError ? 'Not sent: the server did not answer. Your text is still in the field. Try again.' : error.message);
-  } finally { for (const b of others) b.disabled = false; }
+  } finally {
+    if (memoId !== null) inFlight.delete(memoId);
+    for (const b of others) b.disabled = false;
+  }
 }
 // onDone: runs after the server has the answer, before the new list (the one-card view counts it).
 const reply = (memo, text, buttonNode, onDone) => {
   if (!text.trim()) return note('Write a reply first.');
-  return send(buttonNode, async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); onDone?.(); }, `Reply sent to ${memo.sender}`);
+  return send(buttonNode, async () => { await api('/api/reply', { id: memo.id, text }); drafts.delete(memo.id); onDone?.(); }, `Reply sent to ${memo.sender}`, memo.id);
 };
 const addNote = (memo, text, buttonNode) => {
   if (!text.trim()) return note('Write a note first.');
-  return send(buttonNode, async () => { await api('/api/note', { id: memo.id, from: '__OWNER__', text }); drafts.delete(memo.id); }, `Note sent to ${memo.sender}`);
+  return send(buttonNode, async () => { await api('/api/note', { id: memo.id, from: '__OWNER__', text }); drafts.delete(memo.id); }, `Note sent to ${memo.sender}`, memo.id);
 };
-const close = (memo, buttonNode, onDone) => send(buttonNode, async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); onDone?.(); });
+const close = (memo, buttonNode, onDone) => send(buttonNode, async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); onDone?.(); }, '', memo.id);
 const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta }));
 
 async function loadAgents() {

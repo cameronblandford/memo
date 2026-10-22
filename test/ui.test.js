@@ -314,6 +314,25 @@ test('a new or updated memo in the closed fold gets a toast, and the toast opens
   assert.match(page, /node\.addEventListener\('click', \(\) => goTo\(memo\.id\)\);/);
 });
 
+test('one action in flight for each memo: a choice, Reply, Note, Close, and Approve rule lock the whole card', async () => {
+  const page = (await get('/inbox')).text;
+  const send = page.slice(page.indexOf('async function send('), page.indexOf('\n}\n', page.indexOf('async function send(')));
+  assert.match(send, /if \(memoId !== null && inFlight\.has\(memoId\)\) return;/);
+  assert.match(send, /if \(memoId !== null\) inFlight\.add\(memoId\);/);
+  assert.match(send, /lockScope\(buttonNode\)\?\.querySelectorAll\('button'\)/);
+  // After a success or a failure, the lock goes and the buttons come back.
+  assert.match(send, /finally \{\n    if \(memoId !== null\) inFlight\.delete\(memoId\);\n    for \(const b of others\) b\.disabled = false;\n  \}/);
+  // The scope is the whole card (the deck in the one-card view), not only the row of the button.
+  assert.match(page, /const lockScope = \(buttonNode\) => buttonNode\?\.closest\('\.deck'\) \|\| buttonNode\?\.closest\('\.memo'\) \|\| buttonNode\?\.parentNode;/);
+  assert.doesNotMatch(send, /buttonNode\?\.parentNode\?\.querySelectorAll/);
+  // Each action of a memo gives its id.
+  assert.match(page, /`Replied "\$\{word\}" to \$\{memo\.sender\}`, memo\.id\)/);
+  assert.match(page, /`Reply sent to \$\{memo\.sender\}`, memo\.id\);/);
+  assert.match(page, /`Note sent to \$\{memo\.sender\}`, memo\.id\);/);
+  assert.match(page, /drafts\.delete\(memo\.id\); onDone\?\.\(\); \}, '', memo\.id\);/);
+  assert.match(page, /`Rule added for \$\{asked\.agent\}`, memo\.id\)/);
+});
+
 test('the postpone picker has Tomorrow, Next week, and In a month', async () => {
   const { inAMonth } = await import('../ui/filter.js');
   assert.equal(inAMonth('2026-10-22'), '2026-11-22');
