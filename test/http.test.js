@@ -259,15 +259,25 @@ test('the screen routes show a session, and a key for a remote agent goes back w
   assert.equal((await call(app, '/api/agent/screen?name=mac')).data.text, 'Teach auto mode?');
 });
 
-test('the note route keeps the memo open, and the liaison token cannot use it', async () => {
+test('the note route sends the memo back and returns it; the liaison token can answer only in its own memo', async () => {
   const { app } = makeApp();
   const id = (await call(app, '/api/send', { from: 'main', to: 'cam', text: 'Approve?', impact: 3, effort: 'short' })).data.memo.id;
   assert.equal((await call(app, '/api/note', { id, from: 'cam', text: 'Add the price.' }, LIAISON_TOKEN)).status, 403);
   const r = await call(app, '/api/note', { id, from: 'cam', text: 'Add the price.' });
-  assert.equal(r.data.state, 'open');
+  assert.equal(r.data.state, 'waiting');
+  let queue = (await call(app, '/api/queue')).data;
+  assert.deepEqual([queue.memos.length, queue.waiting.map((m) => m.id)], [0, [id]]);
   assert.equal((await call(app, '/api/news?for=main')).data.noted[0].notes[0].text, 'Add the price.');
-  assert.equal((await call(app, '/api/queue')).data.memos[0].notes.length, 1);
-  assert.equal((await call(app, '/api/ack', { id })).data.notes[0].read, 1);
+  assert.equal((await call(app, '/api/ack', { id })).status, 409, 'a memo that waits needs an answer, not an ack');
+  assert.equal((await call(app, '/api/note', { id, from: 'main', text: 'The price is $14.' })).data.state, 'open');
+  queue = (await call(app, '/api/queue')).data;
+  assert.deepEqual([queue.memos[0].notes.length, queue.waiting.length], [2, 0]);
+  // The liaison: a note in its own memo, and nothing in a memo of main.
+  const own = (await call(app, '/api/send', { from: 'liaison', to: 'cam', text: 'Send the draft?', impact: 4, effort: 'micro' }, LIAISON_TOKEN)).data.memo.id;
+  await call(app, '/api/note', { id: own, from: 'cam', text: 'Make it shorter.' });
+  assert.equal((await call(app, '/api/note', { id: own, from: 'liaison', text: 'Shorter draft: Thanks!' }, LIAISON_TOKEN)).data.state, 'open');
+  assert.equal((await call(app, '/api/note', { id, from: 'liaison', text: 'x' }, LIAISON_TOKEN)).status, 403);
+  assert.equal((await call(app, '/api/note', { id: own, from: 'cam', text: 'x' }, LIAISON_TOKEN)).status, 403);
 });
 
 test('the brief route sets the brief, and the liaison token cannot use it', async () => {

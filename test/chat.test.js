@@ -33,6 +33,7 @@ test('the thread has the memos between the owner and one agent, in the two direc
   assert.equal(r.data.memos[0].reply, 'Done: the README has the new page.');
   assert.equal(r.data.memos[0].state, 'closed');
   assert.deepEqual(r.data.memos[1].notes.map((n) => n.text), ['The branch main.']);
+  assert.equal(r.data.memos[1].state, 'waiting', 'the note of the owner sent the memo back to main');
   assert.equal(r.data.more, false);
   // The agents of the picker: the agents with a session, with their status lines. No short agent.
   assert.deepEqual(r.data.agents.map((a) => a.name), ['main', 'mac', 'helper']);
@@ -70,7 +71,7 @@ test('a read of the thread records no delivery and no seen', async () => {
   const before = store.events.list().length;
   await call(app, '/api/thread?agent=main');
   assert.equal(store.events.list().length, before);
-  assert.equal(store.get(3).seen, 0);
+  assert.equal(store.get(4).seen, 0);
 });
 
 test('only the full token and the owner can read the thread', async () => {

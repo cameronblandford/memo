@@ -37,7 +37,8 @@ test('the Inbox list gives each memo its updated time: a note from anyone, an ed
 
   clock.t = at('2026-10-14T19:00:00Z');
   store.note(a.id, 'cam', 'A question from the owner.');
-  assert.equal(updated()[a.id], '2026-10-14T19:00:00.000Z', 'a note of the owner');
+  assert.equal(updated()[a.id], undefined, 'a note of the owner sends the memo back: it is not in the list');
+  assert.equal(store.waiting()[0].id, a.id);
   clock.t = at('2026-10-14T20:00:00Z');
   store.note(a.id, 'main', 'The answer of the sender.');
   assert.equal(updated()[a.id], '2026-10-14T20:00:00.000Z', 'a note of the sender');

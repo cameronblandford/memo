@@ -290,7 +290,8 @@ test('check changes one check box of a memo to the owner and keeps the memo seen
   refuses(() => s.check(1, 0, true), 409, '');
 });
 
-// Notes: messages in an open memo to the owner. The memo stays open.
+// Threads: a note is one turn in a memo to the owner. A note of the owner (Send) gives the turn to the sender, and the
+// answer of the sender gives it back. The memo keeps its id.
 function withMemo() {
   const s = createStore(openDb(), { names: ['cam', 'discord', 'main', 'liaison'], owner: 'cam' });
   const { memo } = s.send({ from: 'main', to: 'cam', text: 'Approve the plan?', impact: 3, effort: 'short' });
@@ -298,15 +299,80 @@ function withMemo() {
 }
 const refusesNote = (fn, status, part) => assert.throws(fn, (e) => e instanceof MemoError && e.status === status && e.message.includes(part));
 
-test('a note of the owner keeps the memo open and goes to the sender as news', () => {
+test('Send: a note of the owner keeps the memo, takes it out of the Inbox, and gives it back to the sender', () => {
   const { s, id } = withMemo();
   const m = s.note(id, 'cam', 'Add the price, please.');
-  assert.equal(m.state, 'open');
+  assert.equal(m.state, 'waiting');
+  assert.equal(m.seen, 1, 'the owner wrote the turn, so the owner saw the memo');
   assert.deepEqual(m.notes.map((n) => [n.author, n.text, n.read]), [['cam', 'Add the price, please.', 0]]);
-  assert.equal(s.list('cam')[0].notes.length, 1);
+  assert.deepEqual(s.list('cam'), [], 'a memo that waits for its sender is not in the Inbox');
+  assert.deepEqual(s.waiting().map((c) => c.id), [id]);
+  assert.deepEqual(s.counts('main').owner_open, 1, 'the work sign of main counts it');
   const news = s.news('main');
   assert.deepEqual(news.noted.map((c) => c.id), [id]);
-  assert.deepEqual(news.results, []);
+  assert.deepEqual(news.waiting.map((c) => c.id), [id]);
+  assert.deepEqual(news.results, [], 'a memo that waits is not a result');
+});
+
+test('the answer of the sender gives the memo back to the owner as updated, with the same id', () => {
+  const { s, id } = withMemo();
+  s.seen([id]);
+  s.note(id, 'cam', 'Add the price, please.');
+  s.news('main');
+  const m = s.note(id, 'main', 'The price is $14.');
+  assert.deepEqual([m.id, m.state, m.seen], [id, 'open', 2]);
+  assert.deepEqual(s.list('cam').map((c) => c.id), [id]);
+  assert.deepEqual(s.waiting(), []);
+  assert.deepEqual(m.notes.map((n) => [n.author, n.text]), [['cam', 'Add the price, please.'], ['main', 'The price is $14.']]);
+  assert.equal(s.counts('main').owner_open, 0);
+  // A second Send and a second answer: the same memo again.
+  s.note(id, 'cam', 'Monthly or yearly?');
+  assert.equal(s.get(id).state, 'waiting');
+  s.news('main');
+  assert.equal(s.edit(id, 'Approve the plan? $14 each month.').state, 'open', 'an edit of the sender is an answer too');
+  assert.equal(s.send({ from: 'main', to: 'cam', text: 'x', impact: 1, effort: 'micro' }).memo.id, id + 1, 'no new memo for the thread');
+});
+
+test('Done closes the memo, also while it waits for the sender; the sender gets the full thread as a result', () => {
+  const { s, id } = withMemo();
+  s.note(id, 'cam', 'Add the price, please.');
+  s.news('main');
+  const m = s.close(id, 'No need, I found it.');
+  assert.deepEqual([m.state, m.reply], ['closed', 'No need, I found it.']);
+  const news = s.news('main');
+  assert.deepEqual(news.results.map((c) => c.id), [id]);
+  assert.equal(news.results[0].notes.length, 1);
+  assert.deepEqual([news.noted, news.waiting], [[], []]);
+  s.ack(id);
+  assert.deepEqual(s.news('main').results, []);
+  refusesNote(() => s.note(id, 'cam', 'x'), 409, 'closed');
+});
+
+test('memo wait gives each turn of the owner one time', () => {
+  const { s, id } = withMemo();
+  s.note(id, 'cam', 'First turn.');
+  assert.deepEqual(s.news('main', { peek: true }).noted.map((c) => c.id), [id], 'a peek is not a delivery');
+  assert.deepEqual(s.news('main').noted.map((c) => c.id), [id]);
+  assert.deepEqual(s.news('main').noted, [], 'the same turn does not come again');
+  assert.deepEqual(s.news('main').waiting.map((c) => c.id), [id], 'memo list still shows it');
+  s.note(id, 'cam', 'Second turn, while the memo waits.');
+  const again = s.news('main').noted;
+  assert.deepEqual(again.map((c) => c.id), [id]);
+  assert.deepEqual(again[0].notes.map((n) => n.text), ['First turn.', 'Second turn, while the memo waits.'], 'the full thread, in order');
+  assert.deepEqual(s.news('main').noted, []);
+  s.note(id, 'main', 'Both done.');
+  s.note(id, 'cam', 'Third turn.');
+  assert.deepEqual(s.news('main').noted[0].notes.map((n) => n.author), ['cam', 'cam', 'main', 'cam']);
+  assert.deepEqual(s.news('main').noted, []);
+});
+
+test('ack refuses a memo that waits for an answer', () => {
+  const { s, id } = withMemo();
+  refusesNote(() => s.ack(id), 409, 'open');
+  s.note(id, 'cam', 'Add the price.');
+  s.news('main');
+  refusesNote(() => s.ack(id), 409, 'waits for your answer');
+  assert.equal(s.get(id).state, 'waiting');
 });
 
 test('an answer of the sender marks the note as read and shows the memo as updated', () => {
@@ -322,34 +388,31 @@ test('an answer of the sender marks the note as read and shows the memo as updat
   assert.equal(s.note(id, 'cam', 'Thanks.').notes[1].read, 1);
 });
 
-test('ack of an open memo marks the notes of the owner as read, with no answer', () => {
-  const { s, id } = withMemo();
-  refusesNote(() => s.ack(id), 409, 'open');
-  s.note(id, 'cam', 'I read this later.');
-  s.news('main');
-  assert.equal(s.ack(id).notes[0].read, 1);
+test('a note of the owner from before threads (on an open memo) is not a turn for memo wait; ack marks it read', () => {
+  const db = openDb();
+  const s = createStore(db, { names: ['cam', 'discord', 'main', 'liaison'], owner: 'cam' });
+  const { id } = s.send({ from: 'main', to: 'cam', text: 'Old memo', impact: 3, effort: 'short' }).memo;
+  db.prepare("INSERT INTO notes (memo_id, author, text, created) VALUES (?, 'cam', 'I read this later.', '2026-10-01T00:00:00Z')").run(id);
   assert.deepEqual(s.news('main').noted, []);
-  assert.equal(s.get(id).acked, 0);
-  refusesNote(() => s.ack(id), 409, 'open');
+  assert.equal(s.ack(id).notes[0].read, 1);
+  assert.equal(s.get(id).state, 'open');
 });
 
-// A note of the owner is read only when the sender got it from memo wait or memo list. A note that came
-// after the last delivery stays unread, so the next memo wait gives it.
-test('a note, an edit, or an ack of the sender marks only the notes of the owner that the sender got', () => {
+// An answer of the sender (a note or an edit) marks each turn of the owner that exists as read, so memo wait never
+// gives a turn again that has an answer, and never gives an open memo.
+test('an answer marks every turn of the owner as read, also a turn that came while the sender worked', () => {
   const { s, id } = withMemo();
   s.note(id, 'cam', 'First question.');
-  s.news('main'); // main gets the first note
+  s.news('main'); // main gets the first turn
   s.note(id, 'cam', 'Second question.'); // main has not got this one
-  let m = s.note(id, 'main', 'Answer to the first.');
-  assert.deepEqual(m.notes.map((n) => [n.text, n.read]), [['First question.', 1], ['Second question.', 0], ['Answer to the first.', 0]]);
-  assert.deepEqual(s.news('main').noted.map((c) => c.id), [id], 'the second note comes in the next memo wait');
+  let m = s.note(id, 'main', 'Answer to both.');
+  assert.deepEqual(m.notes.map((n) => [n.text, n.read]), [['First question.', 1], ['Second question.', 1], ['Answer to both.', 0]]);
+  assert.equal(m.state, 'open');
+  assert.deepEqual(s.news('main').noted, [], 'an open memo never comes as a memo that waits');
   s.note(id, 'cam', 'Third question.');
-  m = s.edit(id, 'Approve the plan? (changed for the second note)');
-  assert.deepEqual(m.notes.filter((n) => n.author === 'cam').map((n) => n.read), [1, 1, 0]);
-  refusesNote(() => s.ack(id), 409, 'did not get');
-  assert.equal(s.get(id).notes.at(-1).read, 0);
-  s.news('main');
-  assert.equal(s.ack(id).notes.every((n) => n.author !== 'cam' || n.read), true);
+  m = s.edit(id, 'Approve the plan? (changed for the third question)');
+  assert.deepEqual([m.state, m.notes.filter((n) => n.author === 'cam').every((n) => n.read)], ['open', true]);
+  assert.deepEqual(s.news('main').noted, []);
 });
 
 test('a note of the owner marks all notes of the sender as read: the Inbox shows all of them', () => {
@@ -362,15 +425,14 @@ test('a note of the owner marks all notes of the sender as read: the Inbox shows
   assert.deepEqual(m.notes.filter((n) => n.author === 'main').map((n) => n.read), [1, 1]);
 });
 
-test('a note from before the event log counts as got when the memo has a delivery', () => {
-  const db = openDb();
-  const s = createStore(db, { names: ['cam', 'discord', 'main', 'liaison'], owner: 'cam' });
-  const { memo } = s.send({ from: 'main', to: 'cam', text: 'Old memo', impact: 3, effort: 'short' });
-  db.prepare("INSERT INTO notes (memo_id, author, text, created) VALUES (?, 'cam', 'old note', '2026-01-01T00:00:00Z')").run(memo.id);
-  refusesNote(() => s.ack(memo.id), 409, 'did not get');
-  s.news('main');
-  s.note(memo.id, 'cam', 'New note.'); // after the delivery
-  assert.deepEqual(s.ack(memo.id).notes.map((n) => [n.text, n.read]), [['old note', 1], ['New note.', 0]]);
+test('memo list (a peek) shows a turn, the answer comes, and memo wait does not give the turn again', () => {
+  const { s, id } = withMemo();
+  s.note(id, 'cam', 'Add the price.');
+  assert.deepEqual(s.news('main', { peek: true }).waiting.map((c) => c.id), [id]); // memo list: no delivery
+  s.note(id, 'main', 'The price is $14.');
+  const news = s.news('main');
+  assert.deepEqual([news.noted, news.waiting, news.results], [[], [], []]);
+  assert.equal(s.get(id).state, 'open');
 });
 
 test('note refuses a wrong party, a closed memo, a memo to an agent, and a text that is too long', () => {

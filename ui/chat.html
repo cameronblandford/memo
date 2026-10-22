@@ -45,20 +45,20 @@ footer { margin: .75rem 0 0; }
 <p id="note" role="status" hidden></p>
 <button id="older" type="button" hidden>Show older memos</button>
 <main id="thread"></main>
-<footer>Each message is a memo from you to the agent. The agent gets it with memo wait. The thread shows the memos between you and the agent, in the two directions. Answer a memo of the agent in the Inbox. Return sends and Shift-Return adds a line. The page loads again each 5 seconds.</footer>
+<footer>Each message is a memo from you to the agent. The agent gets it with memo wait. The thread shows the memos between you and the agent, in the two directions. A memo of the agent is a thread: its turns show under it, with its state (waits for you, or waits for the agent). Answer it in the Inbox. Return sends and Shift-Return adds a line. The page loads again each 5 seconds.</footer>
 <form id="say">
   <div class="thumbs" hidden></div>
   <textarea name="text" rows="1" placeholder="Message" autocomplete="off" required aria-label="Message"></textarea>
   <button>Send</button>
 </form>
 <script type="module">
-import { api, el, tokenForm, note, age, loadImages, attach } from '/ui/common.js';
+import { api, el, tokenForm, note, age, loadImages, attach, turnsOf } from '/ui/common.js';
 import { render as markdown } from '/ui/markdown.js';
 import { enterSends, fieldHeight } from '/ui/keys.js';
 import { withFeedback } from '/ui/feedback.js';
 import { workState } from '/ui/working.js';
 import { parseRule, withoutMarker } from '/ui/rule.js';
-import { createLoads } from '/ui/chat.js';
+import { createLoads, stateText } from '/ui/chat.js';
 
 const OWNER = '__OWNER__';
 const AGENT_KEY = 'memo-chat-agent';
@@ -83,14 +83,9 @@ const time = (iso) => new Date(iso).toLocaleString(undefined, { weekday: 'short'
 const when = (iso) => el('span', { title: time(iso) }, age(iso));
 const text = (memo) => (parseRule(memo.text) ? withoutMarker(memo.text) : memo.text);
 
-function stateOf(memo) {
-  if (memo.state === 'open') return memo.recipient === OWNER ? 'waits for you' : `waits for ${memo.recipient}`;
-  return memo.state === 'replied' ? 'answered' : 'closed';
-}
-
-// The end of the memo: the reply, or the close, of its recipient.
+// The end of the memo: the reply, or the close, of its recipient. A memo that is open or that waits has no end yet.
 function answer(memo) {
-  if (memo.state === 'open') return '';
+  if (memo.state === 'open' || memo.state === 'waiting') return '';
   const verb = memo.state === 'replied' ? 'replied' : 'closed it';
   return el('div', { className: 'answer' },
     el('div', { className: 'who' }, el('b', {}, memo.recipient), ` ${verb} · `, when(memo.closed || memo.created)),
@@ -99,18 +94,16 @@ function answer(memo) {
 
 function bubble(memo) {
   const mine = memo.sender === OWNER;
-  const notes = memo.notes || [];
   // The number goes to the history of the memo on the Log page. An open memo to the owner also has a link to the Inbox.
   const links = [el('a', { href: `/log?memo=${memo.id}`, title: 'The history of this memo on the Log page' }, `#${memo.id}`)];
   if (memo.recipient === OWNER && memo.state === 'open') links.unshift(el('a', { href: '/inbox', title: 'Answer this memo in the Inbox' }, 'Inbox'));
   const node = el('article', { className: mine ? 'bubble mine' : 'bubble' },
     el('div', { className: 'meta' },
       el('span', { className: 'sender' }, mine ? 'you' : memo.sender), el('span', {}, '·'), when(memo.created),
-      el('span', { className: memo.state === 'open' ? 'state open' : 'state' }, stateOf(memo)), ...links),
+      el('span', { className: memo.state === 'open' || memo.state === 'waiting' ? 'state open' : 'state' }, stateText(memo, OWNER)), ...links),
     el('div', { className: 'md' }, ...markdown(text(memo), el)),
-    notes.length ? el('div', { className: 'notes' }, ...notes.map((n) => el('div', { className: 'note' },
-      el('div', { className: 'who' }, el('b', {}, n.author === OWNER ? 'you' : n.author), ' · ', when(n.created)),
-      el('div', { className: 'md' }, ...markdown(n.text, el))))) : '',
+    // The thread: the turns of the owner and of the agent after the memo text, oldest first.
+    turnsOf(memo, OWNER, markdown),
     answer(memo));
   node.dataset.id = memo.id;
   return node;

@@ -141,9 +141,10 @@ export function createApp({ store, agents, images, ticks, tickets, linear, ticks
     only(c, false);
     return c.json(store.brief(b.id, { title: b.title, next: b.next }));
   });
+  // A turn in the thread of a memo. The liaison can answer only in a memo that it sent.
   app.post('/api/note', async (c) => {
     const b = await body(c);
-    only(c, false);
+    only(c, b.from === LIAISON && store.get(b.id).sender === LIAISON);
     return c.json(store.note(b.id, b.from, b.text));
   });
   app.post('/api/seen', async (c) => {
@@ -271,6 +272,8 @@ export function createApp({ store, agents, images, ticks, tickets, linear, ticks
       ticks: ticksOn ? placeTicks(memos, ticks.due(), dueSoon(now())) : [],
       // For the "Postponed (n)" button, and for the dates of the postpone picker.
       postponed: store.postponed().length,
+      // The memos that the owner sent back to their senders, for the "Waiting for agents (n)" section.
+      waiting: store.waiting(),
       timeZone: store.timeZone,
       // For the work sign in the corner: the status of each agent and the work of the owner that waits for it.
       agents: agents.work(),

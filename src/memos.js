@@ -149,6 +149,13 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return c;
   }
 
+  // A memo that is not ended: open (the turn of the recipient) or waiting (the owner sent it back: the turn of the sender).
+  function getActive(id) {
+    const c = get(id);
+    if (c.state !== 'open' && c.state !== 'waiting') throw new MemoError(409, `Memo ${c.id} is ${c.state}. It cannot change.`);
+    return c;
+  }
+
   function corrections(sender) {
     return db.prepare(
       `SELECT k.memo_id, k.old_impact, k.new_impact, k.at, substr(c.text, 1, 80) AS text
@@ -197,8 +204,9 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return get(c.id);
   }
 
+  // Done in the Inbox. A memo that waits for its sender can close too.
   function close(id, text) {
-    const c = getOpen(id);
+    const c = getActive(id);
     const body = checkText('text', text, false);
     db.prepare(`UPDATE memos SET reply = ?, state = 'closed', closed = ? WHERE id = ?`).run(body, ts(), c.id);
     log(c.recipient, c.id, 'close', body || '');
@@ -206,13 +214,13 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
   }
 
   // A new text for an open memo, for example to make it easier to read. The impact, the effort, and the place in the queue stay.
+  // An edit of a memo that waits for its sender is an answer: the memo goes back to the owner.
   function edit(id, text) {
-    const c = getOpen(id);
+    const c = getActive(id);
     // A text that the owner saw and that changes shows as "updated" in the Inbox.
-    db.prepare('UPDATE memos SET text = ?, seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?').run(checkText('text', text), c.id);
-    // The sender changes the text to do what a note of the owner asks. Thus the notes of the owner that the sender
-    // got are read, and memo wait does not give the same note again. A note that came later stays unread.
-    markOwnerNotesRead(c.id, c.sender);
+    db.prepare("UPDATE memos SET text = ?, state = 'open', seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?").run(checkText('text', text), c.id);
+    // The sender changes the text to do what a note of the owner asks: an answer. All notes of the owner are read.
+    answered(c.id);
     log(c.sender, c.id, 'edit', text);
     return get(c.id);
   }
@@ -220,7 +228,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
   // A new brief for an open memo: the title, the next step, or both. A part that is not given stays.
   // An empty part removes it. The memo does not show as "updated": the text is the same.
   function brief(id, { title, next } = {}) {
-    const c = getOpen(id);
+    const c = getActive(id);
     if (title === undefined && next === undefined) throw new MemoError(400, 'Give title, next, or both.');
     const name = title === undefined ? c.title : checkLine('title', title, MAX_TITLE);
     const step = next === undefined ? c.next : checkLine('next', next, MAX_NEXT);
@@ -229,25 +237,39 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return get(c.id);
   }
 
-  // A note is a message in an open memo to the owner. The memo stays open and keeps its place in the queue.
-  // The owner writes a note to ask for a change or for more data. The sender of the memo answers with a note.
+  // A note is one turn in the thread of a memo to the owner. The memo keeps its id and its place in the queue.
+  //   A note of the owner (Send in the Inbox) gives the turn to the sender: the state changes to 'waiting', and the
+  //   memo leaves the Inbox. memo wait gives it to the sender one time.
+  //   A note of the sender (memo note) is the answer: the state changes back to 'open', and the memo comes back to
+  //   the Inbox as "updated". A note of the sender on an open memo also shows as "updated".
   // A new note marks the notes of the other party as read: for the owner (the Inbox shows all notes) all of them;
   // for the sender only the notes of the owner that memo wait or memo list gave to the sender.
   function note(id, from, text) {
-    const c = getOpen(id);
+    const c = getActive(id);
     if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} can have notes.`);
     if (from !== owner && from !== c.sender) throw new MemoError(403, `Only ${owner} and ${c.sender} can add a note to memo ${c.id}.`);
     const body = checkText('text', text);
     if (body.length > MAX_NOTE) throw new MemoError(400, `A note must have ${MAX_NOTE} characters or fewer.`);
     db.prepare('INSERT INTO notes (memo_id, author, text, created) VALUES (?, ?, ?, ?)').run(c.id, from, body, ts());
-    if (from === owner) db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author != ?').run(c.id, from);
-    else markOwnerNotesRead(c.id, from);
-    // A note of the sender shows as "updated" in the Inbox, as a changed text does.
-    if (from !== owner) db.prepare('UPDATE memos SET seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?').run(c.id);
+    if (from === owner) {
+      db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author != ?').run(c.id, from);
+      // The owner wrote the turn, so the owner saw the memo.
+      db.prepare("UPDATE memos SET state = 'waiting', seen = 1 WHERE id = ?").run(c.id);
+    } else {
+      answered(c.id);
+      // A note of the sender shows as "updated" in the Inbox, as a changed text does.
+      db.prepare("UPDATE memos SET state = 'open', seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?").run(c.id);
+    }
     log(from, c.id, 'note', body);
     return get(c.id);
   }
   const unreadFromOwner = (id) => db.prepare('SELECT COUNT(*) AS n FROM notes WHERE memo_id = ? AND author = ? AND read = 0').get(id, owner).n;
+  // True if the memo has a note of the owner that is not read and that memo wait or memo list did not give to the
+  // reader yet. memo wait gives each turn of the owner one time.
+  function hasNewTurn(memoId, reader) {
+    const newest = db.prepare('SELECT MAX(id) AS id FROM notes WHERE memo_id = ? AND author = ? AND read = 0').get(memoId, owner).id;
+    return newest != null && newest > deliveredNoteCut(memoId, reader);
+  }
 
   // The id of the newest note of the owner on the memo that memo wait or memo list gave to the reader, or 0.
   // The event log tells it, with no new column: each note of the owner has a "note" event, and each delivery
@@ -262,11 +284,12 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     const got = Math.max(0, ids.length - logged) + before;
     return got ? ids[Math.min(got, ids.length) - 1] : 0;
   }
-  // The reader acts on the memo (a note, an edit, an ack): the notes of the owner that the reader got are read.
-  // A note that the reader never got stays unread, so memo wait gives it.
-  function markOwnerNotesRead(memoId, reader) {
-    const cut = deliveredNoteCut(memoId, reader);
-    return Number(db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ? AND read = 0 AND id <= ?').run(memoId, owner, cut).changes);
+
+  // The sender answered (a note or an edit), or acked an old note: each note of the owner that exists now is read,
+  // also when the sender saw it only in memo list (a peek, with no delivery). Thus memo wait never gives a turn
+  // again that has an answer.
+  function answered(memoId) {
+    db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author = ? AND read = 0').run(memoId, owner);
   }
 
   // The owner changes one check box of a memo ("- [ ] text"). The text changes only in that box, and the memo stays seen.
@@ -310,10 +333,14 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
 
   function ack(id) {
     const c = get(id);
+    // A memo that waits for its sender needs an answer, not an ack: else it waits for ever.
+    if (c.state === 'waiting') {
+      throw new MemoError(409, `Memo ${c.id} waits for your answer. Answer in the memo: memo note ${c.id} --from ${c.sender} -- "<text>". The memo then goes back to ${owner}.`);
+    }
     // For an open memo, the sender marks the notes of the owner as read, when no answer is necessary.
+    // An old note of the owner on an open memo (from before threads): the ack marks it read.
     if (c.state === 'open' && unreadFromOwner(c.id)) {
-      const n = markOwnerNotesRead(c.id, c.sender);
-      if (!n) throw new MemoError(409, `Memo ${c.id} has notes of ${owner} that you did not get yet. Run memo wait to get them.`);
+      answered(c.id);
       log(c.sender, c.id, 'ack', 'notes read');
       return get(c.id);
     }
@@ -392,6 +419,11 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     return sortQueue(rows.map((m) => ({ ...m, updated: updatedTime(m, lastEdit.get(m.id)?.at) })), now());
   }
 
+  // The memos to the owner that wait for their senders (the owner sent them back), the oldest first.
+  function waiting() {
+    return db.prepare(`SELECT * FROM memos WHERE recipient = ? AND state = 'waiting' ORDER BY id`).all(owner).map(withNotes);
+  }
+
   // The postponed memos of the owner, the first to come back first.
   function postponed() {
     wake();
@@ -414,19 +446,23 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
   // hold: the ids that memo wait does not show (memo wait --hold). Each answer records a delivery for the memos
   // that the wait shows, and the time of the request and the held ids for the Log page.
   // peek: a check that is not a read by the agent (the Discord watcher). It records no delivery and no poll.
+  // results: the ended memos of this sender (replied or closed) that it did not ack. They come again until the ack.
+  // noted: the memos of this sender that wait for it, with a new turn of the owner (never an open memo). Each turn
+  //   comes one time: a later memo wait does not give it again.
+  // waiting: all memos of this sender that wait for its answer, also when memo wait gave them before (for memo list).
   function news(who, { hold = [], peek = false } = {}) {
     const to_you = list(who);
-    const results = db.prepare(`SELECT * FROM memos WHERE sender = ? AND state != 'open' AND acked = 0 ORDER BY id`)
+    const results = db.prepare(`SELECT * FROM memos WHERE sender = ? AND state IN ('replied', 'closed') AND acked = 0 ORDER BY id`)
       .all(who).map(withNotes);
-    // Open memos of this sender that have a note of the owner that the sender did not read.
     const noted = db.prepare(
-      `SELECT * FROM memos WHERE sender = ? AND state = 'open'
+      `SELECT * FROM memos WHERE sender = ? AND state = 'waiting'
        AND id IN (SELECT memo_id FROM notes WHERE author = ? AND read = 0) ORDER BY id`,
-    ).all(who, owner).map(withNotes);
-    if (peek) return { to_you, results, noted };
+    ).all(who, owner).filter((m) => hasNewTurn(m.id, who)).map(withNotes);
+    const waits = db.prepare(`SELECT * FROM memos WHERE sender = ? AND state = 'waiting' ORDER BY id`).all(who).map(withNotes);
+    if (peek) return { to_you, results, noted, waiting: waits };
     polls.set(who, { at: ts(), hold: to_you.filter((c) => hold.includes(c.id)).map((c) => c.id) });
     delivered(who, [...to_you.filter((c) => !hold.includes(c.id)), ...results, ...noted], 'by memo wait');
-    return { to_you, results, noted };
+    return { to_you, results, noted, waiting: waits };
   }
 
   // The reader got these memos. Not for the owner: the Inbox records "seen" for the owner.
@@ -451,10 +487,10 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
         ...events.deliveryOf(c.id, name), held: stage === 'open' && !!poll?.hold.includes(c.id),
       });
       const open = db.prepare(`SELECT * FROM memos WHERE recipient = ? AND state = 'open' ORDER BY id`).all(name);
-      const results = db.prepare(`SELECT * FROM memos WHERE sender = ? AND state != 'open' AND acked = 0 ORDER BY id`).all(name);
+      const results = db.prepare(`SELECT * FROM memos WHERE sender = ? AND state IN ('replied', 'closed') AND acked = 0 ORDER BY id`).all(name);
       const noted = db.prepare(
         `SELECT m.*, MIN(t.created) AS note_at FROM memos m JOIN notes t ON t.memo_id = m.id
-         WHERE m.sender = ? AND m.state = 'open' AND t.author = ? AND t.read = 0 GROUP BY m.id ORDER BY m.id`,
+         WHERE m.sender = ? AND m.state = 'waiting' AND t.author = ? AND t.read = 0 GROUP BY m.id ORDER BY m.id`,
       ).all(name, owner);
       return {
         name, poll,
@@ -465,14 +501,14 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
   }
 
   // owner_open: the work of the owner that waits for this agent. That is each open memo from the owner to the agent,
-  // and each open memo from the agent with a note of the owner that the agent did not read.
+  // and each memo from the agent with a note of the owner that the agent did not read (a memo that waits for the agent).
   // owner_since: the time of the oldest of these memos or notes, or null. The Inbox compares it with the status time.
   function counts(name) {
     const n = (sql) => db.prepare(sql).get(name).n;
     const sent = db.prepare(`SELECT COUNT(*) AS n, MIN(created) AS since FROM memos WHERE sender = ? AND recipient = ? AND state = 'open'`).get(owner, name);
     const noted = db.prepare(
       `SELECT COUNT(DISTINCT m.id) AS n, MIN(t.created) AS since FROM notes t JOIN memos m ON m.id = t.memo_id
-       WHERE m.sender = ? AND m.state = 'open' AND t.author = ? AND t.read = 0`,
+       WHERE m.sender = ? AND m.state = 'waiting' AND t.author = ? AND t.read = 0`,
     ).get(name, owner);
     const since = [sent.since, noted.since].filter(Boolean).sort()[0] ?? null;
     return {
@@ -483,5 +519,5 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     };
   }
 
-  return { get, send, reply, close, edit, brief, note, seen, check, adjust, ack, forward, tag, postpone, postponed, list, thread, news, delivered, inflight, events, corrections, counts, timeZone };
+  return { get, send, reply, close, edit, brief, note, seen, check, adjust, ack, forward, tag, postpone, postponed, waiting, list, thread, news, delivered, inflight, events, corrections, counts, timeZone };
 }

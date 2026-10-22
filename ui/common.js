@@ -191,3 +191,19 @@ window.addEventListener('message', (event) => {
     if (frame.contentWindow === event.source) frame.style.height = `${Math.min(1500, Math.max(40, Math.ceil(height)))}px`;
   }
 });
+
+// The turns of the thread of a memo (its notes), oldest first, under the memo text. owner: the name of the owner,
+// shown as "you". render: the Markdown renderer of ui/markdown.js. A turn of the owner that the sender did not get
+// yet says so.
+export function turnsOf(memo, owner, render) {
+  const notes = memo.notes || [];
+  if (!notes.length) return '';
+  return el('div', { className: 'notes thread', role: 'list', ariaLabel: 'Thread' }, ...notes.map((n) => {
+    const mine = n.author === owner;
+    const node = el('div', { className: mine ? 'note mine' : 'note' },
+      el('div', { className: 'who' }, el('b', {}, mine ? 'you' : n.author), ` · ${age(n.created)}${mine && !n.read ? ` · ${memo.sender} did not answer yet` : ''}`),
+      el('div', { className: 'md' }, ...render(n.text, el)));
+    node.setAttribute('role', 'listitem');
+    return node;
+  }));
+}

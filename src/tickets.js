@@ -127,14 +127,17 @@ export function createTickets(db, { owner = 'owner', agents = [], now = () => ne
 
   // The open memos to the owner that name a ticket and are not postponed: the questions of the Desk.
   // A postpone whose return time has passed counts as ended, also before the Inbox runs wake() and clears until.
-  function questions() {
+  // state 'waiting': the memos that the owner sent back to the agent. They are not questions; the card says "waits for".
+  // Each question has the turns of its thread (notes), oldest first.
+  function questions(state = 'open') {
     const rows = db.prepare(
-      `SELECT id, sender, title, text, next, impact, created, ticket, tags FROM memos
-       WHERE recipient = ? AND state = 'open' AND (until IS NULL OR until <= ?) AND ticket IS NOT NULL ORDER BY impact DESC, id`,
-    ).all(owner, ts());
+      `SELECT id, sender, recipient, state, title, text, next, impact, created, ticket, tags FROM memos
+       WHERE recipient = ? AND state = ? AND (until IS NULL OR until <= ?) AND ticket IS NOT NULL ORDER BY impact DESC, id`,
+    ).all(owner, state, ts());
+    const turns = db.prepare('SELECT id, author, text, created, read FROM notes WHERE memo_id = ? ORDER BY id');
     const map = new Map();
     for (const m of rows) {
-      const q = { id: m.id, sender: m.sender, title: m.title || summaryOf(m.text, 80) || `Memo ${m.id}`, text: m.text, next: m.next, impact: m.impact, created: m.created, tags: m.tags ? m.tags.split(',') : [] };
+      const q = { id: m.id, sender: m.sender, recipient: m.recipient, state: m.state, title: m.title || summaryOf(m.text, 80) || `Memo ${m.id}`, text: m.text, next: m.next, impact: m.impact, created: m.created, tags: m.tags ? m.tags.split(',') : [], notes: turns.all(m.id).map((n) => ({ ...n })) };
       if (!map.has(m.ticket)) map.set(m.ticket, []);
       map.get(m.ticket).push(q);
     }
@@ -146,12 +149,13 @@ export function createTickets(db, { owner = 'owner', agents = [], now = () => ne
   // with no agent and no Desk state, that are not closed in Linear.
   function board() {
     const open = questions();
+    const away = questions('waiting');
     const cut = new Date(now().getTime() - DONE_DAYS * 86400000).toISOString();
     const groups = Object.fromEntries(DESK_STATES.map((s) => [s, []]));
     const backlog = [];
     for (const r of db.prepare('SELECT * FROM tickets').all()) {
       const qs = open.get(r.key) || [];
-      const t = { ...r, question: qs[0] || null, questions: qs.length };
+      const t = { ...r, question: qs[0] || null, questions: qs.length, waits: away.get(r.key) || [] };
       if (qs.length) groups.needs_you.push(t);
       else if (r.desk_state === 'done') { if (r.done_at && r.done_at >= cut) groups.done.push(t); }
       else if (r.desk_state) groups[r.desk_state].push(t);

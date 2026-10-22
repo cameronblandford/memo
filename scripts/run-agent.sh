@@ -53,7 +53,7 @@ trap 'rmdir "$lock" 2>/dev/null || true' EXIT
 recent="$(awk -v since="$(date -u -v-1H +%FT%TZ 2>/dev/null || date -u -d '1 hour ago' +%FT%TZ)" '$2 ~ /start/ && $1 > since' "$log" 2>/dev/null | wc -l | tr -d ' ')"
 if [ "${recent:-0}" -ge 8 ]; then echo "$(date -u +%FT%TZ) $name: 8 runs in the last hour, skipped" >> "$log"; exit 0; fi
 # The liaison reads text from other people, so the run gets the restricted token. With it the server permits only:
-# read the memos to liaison, send a memo to the owner, close a memo to liaison, and forward a Discord message that the owner wrote.
+# read the memos to liaison, send a memo to the owner, answer in the thread of its own memo, close a memo to liaison, and forward a Discord message that the owner wrote.
 MEMO_TOKEN="${MEMO_LIAISON_TOKEN:-$(sed -n 's/^MEMO_LIAISON_TOKEN=//p' "$env_file" 2>/dev/null || true)}"; export MEMO_TOKEN
 [ -n "$MEMO_TOKEN" ] || { echo "$(date -u +%FT%TZ) $name: MEMO_LIAISON_TOKEN is not set, skipped" >> "$log"; exit 1; }
 # The Agents page shows the time of this status line as the last run.

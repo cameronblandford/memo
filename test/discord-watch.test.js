@@ -129,15 +129,18 @@ test('an answer of the owner to a memo from the liaison starts one liaison run, 
     assert.match((await t.watch()).stdout, /answers of the owner to the liaison, started the liaison/);
     assert.equal((await t.watch()).stdout.trim(), '', 'the same answer starts no second run');
     t.store.note(info.id, 'cam', 'Which version?');
-    assert.match((await t.watch()).stdout, /started the liaison/, 'a note of the owner starts a run');
+    assert.match((await t.watch()).stdout, /started the liaison/, 'a Send of the owner starts a run');
     assert.equal((await t.watch()).stdout.trim(), '');
     t.store.note(info.id, 'cam', 'And where is it?');
-    assert.match((await t.watch()).stdout, /started the liaison/, 'a second note starts a run');
+    assert.match((await t.watch()).stdout, /started the liaison/, 'a second Send starts a run');
     // The watcher only looks: the liaison did not get the answers, so they stay for its memo wait.
     assert.deepEqual(t.store.events.list().filter((e) => e.kind === 'delivered'), []);
-    assert.deepEqual(t.store.news('liaison').results.map((c) => c.id), [ask.id]);
+    const news = t.store.news('liaison');
+    assert.deepEqual(news.results.map((c) => c.id), [ask.id]);
+    assert.deepEqual(news.noted.map((c) => c.id), [info.id]);
     t.store.ack(ask.id);
-    t.store.ack(info.id);
+    // The liaison answers in the memo. The memo goes back to the owner, and no new run starts.
+    assert.equal(t.store.note(info.id, 'liaison', 'Version 2, in the kit channel.').state, 'open');
     assert.equal((await t.watch()).stdout.trim(), '');
     assert.deepEqual(t.state()._answers, []);
   } finally { t.close(); }

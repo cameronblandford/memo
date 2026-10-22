@@ -4,12 +4,12 @@ Memo is a work queue for one person and their agents.
 
 > **Warning.** Memo starts Claude Code sessions on your computer. An agent runs commands and changes files with the permissions of your user account and of your Claude Code settings. Read the charters before you start an agent, and give an agent only the directories and the tools that it needs. The Discord watcher brings text from other people to an agent; read "Discord" before you switch it on.
 
-Memo has one concept, the memo. A memo is a message from one party to another party, with an optional reply.
+Memo has one concept, the memo. A memo is a message from one party to another party. A memo to the owner is a thread: the owner and the agent can write turns in it, and it keeps its id until the owner ends it.
 
 | Use | From | To | End |
 |---|---|---|---|
-| A question for the owner | an agent | the owner | The owner replies. |
-| A task that only the owner can do | an agent | the owner | The owner closes it. |
+| A question for the owner | an agent | the owner | The owner sends answers in the thread, then selects Done. |
+| A task that only the owner can do | an agent | the owner | The owner selects Done. |
 | Work for an agent | the owner | an agent | The agent closes it. |
 | A Discord message | `discord` | `liaison` | The liaison closes it. |
 
@@ -46,7 +46,7 @@ The file `.env` holds the configuration and the two tokens. Git ignores it. Its 
 | `MEMO_TOKEN` | The token of the owner and of the agent `main`. It can do all operations. |
 | `MEMO_OWNER_TOKEN` | Optional. The token of the owner alone. It can do all operations, and it can approve a permission rule (see below). Do not give it to an agent. |
 | `LINEAR_API_KEY`, `LINEAR_SYNC_MINUTES` | Optional. A Linear API key with read access, for the sync of the Desk (see "The Desk"), and the minutes between two syncs (default 10). |
-| `MEMO_LIAISON_TOKEN` | The token of the liaison run. It can only read the memos to `liaison`, send a memo to the owner or an event request to `main` (tag `event-request`), close a memo to `liaison`, mark its own results as read, set its own status line, and forward a Discord message that the owner wrote (one time for each message). |
+| `MEMO_LIAISON_TOKEN` | The token of the liaison run. It can only read the memos to `liaison`, send a memo to the owner or an event request to `main` (tag `event-request`), answer in the thread of its own memo (`memo note --from liaison`), close a memo to `liaison`, mark its own results as read, set its own status line, and forward a Discord message that the owner wrote (one time for each message). |
 
 To copy the token for a page (macOS), run `sed -n 's/^MEMO_TOKEN=//p' .env | tr -d '\n' | pbcopy` in the directory of this repository.
 
@@ -89,11 +89,27 @@ A memo with a tag that is not on the screen gets a toast in the corner of the pa
 
 A list item that starts with `[ ]` or `[x]` (for example `- [ ] Rain jacket`) shows as a check box. The owner can tick it on the Inbox page. The server saves the state in the text of the memo, so it is the same on each device, and the agent sees it when it reads the memo.
 
-The button "Note" sends the text of the reply field to the sender of the memo, and the memo stays open in the Inbox with its place in the queue. Use it to ask for a change or for more data. The notes show under "Details", below the memo text, with the answers of the agent. `memo wait` gives the agent each memo with a note that it did not read. The agent answers with `memo note <id> --from <name> "<text>"`, changes the memo with `memo edit`, or runs `memo ack <id>` when no answer is necessary. A note, an edit, or an ack of the agent marks as read only the notes of the owner that `memo wait` or `memo list` gave to the agent; a later note stays unread and comes in the next `memo wait`. "Reply" and "Close" end the memo as before.
+### Threads: Send and Done
 
-Each memo is one card: the title and the next step of the brief (`memo send --title --next`, or `memo brief`), the buttons, and "Details", which opens the full text and the notes (a tap, or the key o). A memo with no title shows the first line of its text.
+A memo to the owner has two buttons:
 
-A memo can have answer buttons: `memo send ... --choices "push,draft,skip"` (6 or fewer, each 24 characters or fewer, no comma). The Inbox shows one button for each word, in the list and in the one-card view. A tap replies with that word, as "Reply" does. The reply field stays for a longer answer.
+- **Send** puts the text of the field in the thread of the memo, as a turn of the owner. The memo goes back to its agent: its state changes to `waiting`, and it leaves the list. It shows in the folded section "Waiting for agents (n)" with the state "waits for <agent>". The agent answers in the same memo (`memo note` or `memo edit`). The memo then comes back to the list, at its place in the order, with the tag "updated" and the state "waits for you". The memo keeps its id, so the agent sends no new memo for a follow-up. Command-Return is Send.
+- **Done** ends the memo (the state changes to `closed`). The text in the field, if any, goes with it. Done also works on a memo that waits for its agent. Thus Done with a text is a reply and a close in one step.
+
+The turns of the thread (the table `notes`) show on the card under "Details", oldest first, with the author and the time. The Chat page and the Desk show them too. A memo from before threads keeps its look: its notes are its turns, and a replied or closed memo shows its reply as before.
+
+On the side of the agent:
+
+- `memo wait` prints each memo with a new turn of the owner under "Memos from <agent> that wait for your answer", with the name of the memo and the full thread, oldest first. It gives each turn one time. The output limit never cuts these memos.
+- The agent answers with `memo note <id> --from <name> -- "<text>"`, or changes the text with `memo edit <id> -- "<new text>"`. Either one gives the memo back to the owner.
+- `memo ack` refuses a memo that waits for an answer, so that no memo waits for ever. When the owner selects Done, the memo comes under "Results" with its thread, and the agent acks it as before.
+- `memo list --to <agent>` also shows the memos of the agent that still wait for its answer, for a new session.
+
+A note of the sender on an open memo (not sent back) also shows as "updated". An answer of the agent (a note or an edit) marks each note of the owner that exists at that time as read, also a note that the agent saw only in `memo list`. Thus `memo wait` never gives a note again that has an answer, and it never gives an open memo as a memo that waits.
+
+Each memo is one card: the title and the next step of the brief (`memo send --title --next`, or `memo brief`), the buttons, "Details", which opens the full text (a tap, or the key o), and the turns of the thread. A memo with no title shows the first line of its text.
+
+A memo can have answer buttons: `memo send ... --choices "push,draft,skip"` (6 or fewer, each 24 characters or fewer, no comma). The Inbox shows one button for each word, in the list and in the one-card view. A tap sends that word, as Send does: the memo goes to the agent and comes back with the answer. The field stays for a longer answer.
 
 A memo with no change for 5 days (no send, note, edit, or return from a postpone) goes into the folded section "Older than 5 days (n)" at the bottom of the list. Its "Close all" button asks first, in the page, and then closes each memo in the section with no text. "Postpone" brings a memo back at 9:00 on a day: Tomorrow, Next week (the next Monday), In a month, or a date.
 
@@ -176,7 +192,7 @@ scripts/memo rule --from main --rule 'Bash(npm test:*)' --why 'To run the tests 
 ```
 
 The memo to the owner shows the reason and the rule. Its last line is a marker for the server, which the Inbox hides:
-`<!-- memo-rule: {"agent":"main","rule":"Bash(npm test:*)"} -->`. The Inbox shows the rule of the marker with the button "Approve rule". Reply or Close refuses it.
+`<!-- memo-rule: {"agent":"main","rule":"Bash(npm test:*)"} -->`. The Inbox shows the rule of the marker with the button "Approve rule". Done refuses it (write the reason in the box first).
 
 The agent only asks. On "Approve rule", the server adds the rule to `permissions.allow` in the settings file of the agent, closes the memo with a note, and the agent gets the result with `memo wait`. The rule applies when the session of the agent starts again.
 
@@ -190,7 +206,7 @@ The agent only asks. On "Approve rule", the server adds the rule to `permissions
 
 Open `http://127.0.0.1:3280/log`. It shows what is on its way to each agent, and what happened to each memo.
 
-- "In flight": for each agent, its open memos, the answers that it did not ack, and the notes of the owner that it did not read. Each line tells if `memo wait` or `memo list` delivered the memo after its last change, or if `memo wait --hold` holds it. The first line of the agent tells when its `memo wait` asked last.
+- "In flight": for each agent, its open memos, the answers that it did not ack, and the notes of the owner that it did not read (the memos that wait for its answer). Each line tells if `memo wait` or `memo list` delivered the memo after its last change, or if `memo wait --hold` holds it. The first line of the agent tells when its `memo wait` asked last.
 - "Events": the steps of the memos (send, delivered, seen, note, edit, brief, reply, close, ack, postpone, forward) and the status lines, newest first. Filter by agent or by memo id; `/log?memo=42` shows one memo.
 - The server writes the events to the table `events`. The table is append-only. An event has the title or the first 80 characters of a text, never the full text.
 
@@ -199,7 +215,7 @@ Open `http://127.0.0.1:3280/log`. It shows what is on its way to each agent, and
 Open `http://127.0.0.1:3280/chat`. It shows the memos between the owner and one agent, in the two directions, as a chat: the oldest at the top, the newest at the bottom. The top line is the status line of the agent.
 
 - The field at the bottom sends a memo from the owner to the agent, as the field of the Inbox does. Return sends; Shift-Return adds a line. The agent gets the memo with `memo wait`.
-- Each memo shows its notes, and the reply or the close that ended it. Its number goes to the memo on the Log page. Answer an open memo of the agent in the Inbox.
+- Each memo shows its state (waits for you, waits for the agent, answered, or closed), the turns of its thread, and the reply or the close that ended it. Its number goes to the memo on the Log page. Answer an open memo of the agent in the Inbox.
 - The list has the agents with a session (`long` and `remote`), not the short agents. `/chat?agent=main` opens the chat with `main`. With no name, the page opens the last chat of the device, or the default agent.
 - The page shows the newest 50 memos. "Show older memos" shows 50 more, up to 500. The page loads again each 5 seconds.
 - The page reads `GET /api/thread?agent=<name>&limit=<n>`. The read records no delivery and no "seen". The liaison token cannot read it.
@@ -210,7 +226,7 @@ Open `http://127.0.0.1:3280/desk`. The Desk is a board of tickets. One ticket is
 
 The groups, from the top: **Needs you**, **Working**, **In review**, **Landing**, **Queued**, and **Done** (the last 7 days, closed). A row of count chips is at the top; tap a chip to show only that group, and tap it again to show all. Each card shows the key and the title, the Linear state (small, read only), the agent with its state and the time since the last change, the one-line summary, and the links to the PR and to Linear.
 
-A ticket is in Needs you when its Desk state is `needs_you`, or when an open memo to the owner names it (`memo send --ticket`). The card then shows that memo, with a field to reply. A postponed memo does not count.
+A ticket is in Needs you when its Desk state is `needs_you`, or when an open memo to the owner names it (`memo send --ticket`). The card then shows that memo with its thread, a field, Send, and Done. A postponed memo does not count. A memo of the ticket that the owner sent back shows as one line "waits for <agent>", and the ticket stays in its own group until the answer comes.
 
 The **Backlog** is under the groups: the Linear issues of the owner from the sync that have no agent and are not closed. "Start" sends a memo from the owner to the selected agent ("Work on TFP-797: <title> <Linear address>", with the ticket) and puts the ticket in Queued.
 
@@ -249,7 +265,7 @@ An agent that wants a change in Linear (a new state, a comment, a new issue) doe
 scripts/memo send --from main --to owner --impact 2 --effort micro --tag linear-draft --ticket TFP-797 --title "Linear: TFP-797 to In Review" -- "Set the state of TFP-797 to In Review. Comment: The PR is https://github.com/acme/web/pull/1234."
 ```
 
-The ticket shows in Needs you with the label "Linear draft". The owner makes the change in Linear and closes the memo, or replies to refuse it.
+The ticket shows in Needs you with the label "Linear draft". The owner makes the change in Linear and selects Done, or writes the reason and selects Done to refuse it.
 
 ## An agent on a different computer
 
@@ -293,7 +309,7 @@ scripts/memo list --to main
 scripts/memo reply 12 "Yes."
 scripts/memo close 12 "Done."
 scripts/memo edit 12 "A new text for an open memo."
-scripts/memo note 12 --from main "The price is $14 each month."
+scripts/memo note 12 --from main -- "The price is $14 each month."
 scripts/memo send --from main --to owner --impact 3 --effort micro --choices "push,draft,skip" "Push the branch?"
 scripts/memo ack 12
 scripts/memo status --as main "I update the README of the website."
@@ -304,7 +320,7 @@ scripts/memo rule --from main --rule 'Bash(npm test:*)' --why 'To run the tests.
 scripts/memo image ~/Desktop/shot.png "The new page"
 ```
 
-`memo wait` uses no model tokens. It exits with code 0 when a new memo arrives or a memo of the agent gets a result. It exits with code 2 at its time limit. It prints the answers to the agent's memos first, with only the name of the agent's own memo, then the new memos. The output has 20000 characters or fewer (`MEMO_WAIT_MAX_CHARS`); the `memo ack` line names only the memos that it printed, and a last line tells how many more memos come in the next `memo wait`.
+`memo wait` uses no model tokens. It exits with code 0 when a new memo arrives or a memo of the agent gets a result. It exits with code 2 at its time limit. It prints the memos that wait for the answer of the agent first, then the results of the memos of the agent, then the new memos. For a memo that the agent sent, it prints only the name of the memo and then the thread. The output has 20000 characters or fewer (`MEMO_WAIT_MAX_CHARS`), but a memo with a new turn of the owner is always printed, because each turn comes one time. The `memo ack` line names only the results that it printed, and a last line tells how many more memos come in the next `memo wait`.
 
 ## Discord
 

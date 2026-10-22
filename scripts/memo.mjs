@@ -16,7 +16,7 @@ const USAGE = `Usage:
   memo close <id> [<text>]
   memo edit <id> [--] <new text>
   memo brief <id> [--title <name>] [--next <step>]
-  memo note <id> --from <name> [--] <text>
+  memo note <id> --from <name> [--] <text>      (a turn in the thread; on a memo that waits for you, it is your answer)
   memo ack <id> [<id> ...]
   memo rule --from <agent> --rule '<permission rule>' --why '<one line>' [--impact 1-5] [--to <owner>]
   memo forward <id> [--to <agent>]
@@ -162,12 +162,13 @@ function show(c) {
   return `${head}\n${c.text}\n${notesOf(c)}${c.reply ? `Reply: ${c.reply}\n` : ''}`;
 }
 
-const headOf = (c) => `#${c.id} from ${c.sender} to ${c.recipient}, ${when(c.created)}` + (c.state !== 'open' ? `, ${c.state}` : '');
+const STATES = { waiting: 'waits for your answer' };
+const headOf = (c) => `#${c.id} from ${c.sender} to ${c.recipient}, ${when(c.created)}` + (c.state !== 'open' ? `, ${STATES[c.state] || c.state}` : '');
 const notesOf = (c) => (c.notes || []).map((n) => `Note from ${n.author}, ${when(n.created)}${n.read ? '' : ' (not read)'}: ${n.text}\n`).join('');
-// A memo that the reader sent: the reply and the notes first, then only the name of the memo. The reader knows
-// its own text, and a long output can lose its middle part.
+// A memo that the reader sent: only the name of the memo (the reader knows its own text), then the thread in
+// order (the notes, oldest first), then the reply or the close text that ended the memo.
 function showOwn(c) {
-  return `${headOf(c)}\n${c.reply ? `Reply: ${c.reply}\n` : ''}${notesOf(c)}Your memo: ${c.title || summary(c.text, 100) || '(no text)'}\n`;
+  return `${headOf(c)}\nYour memo: ${c.title || summary(c.text, 100) || '(no text)'}\n${notesOf(c)}${c.reply ? `${c.state === 'closed' ? 'Closed with' : 'Reply'}: ${c.reply}\n` : ''}`;
 }
 
 // The most characters that memo wait prints. A tool can cut a longer output in the middle, and the agent
@@ -207,7 +208,7 @@ const commands = {
     if (!why) fail('--why needs a reason in one line.');
     const r = await call('/api/send', {
       from, to: flags.to || process.env.MEMO_OWNER || file.MEMO_OWNER || 'owner', text: ruleText({ agent: from, rule, why }), impact: flags.impact === undefined ? 4 : Number(flags.impact), effort: 'micro',
-      title: `Permission rule for ${from}`.slice(0, 60), next: 'Approve rule, or Reply to refuse it.',
+      title: `Permission rule for ${from}`.slice(0, 60), next: 'Approve rule, or write a reason and Done to refuse it.',
     });
     console.log(`Memo ${r.memo.id} asks the owner for the rule ${rule}. Run memo wait for the answer. After an approval, the rule applies when the session starts again.`);
   },
@@ -228,11 +229,12 @@ const commands = {
     const m = await call('/api/brief', { id, title: flags.title, next: flags.next });
     console.log(`Memo ${id} has the brief: ${m.title || '(no title)'} · next: ${m.next || '(no next step)'}.`);
   },
-  // A message in an open memo to the owner. The memo stays open.
+  // A turn in the thread of a memo to the owner. From the sender of a memo that waits for it: the answer, and the
+  // memo goes back to the Inbox of the owner.
   async note() {
     const id = memoId(rest[0]);
-    await call('/api/note', { id, from: need('from'), text: rest.slice(1).join(' ') });
-    console.log(`Memo ${id} has the note. It stays open.`);
+    const m = await call('/api/note', { id, from: need('from'), text: rest.slice(1).join(' ') });
+    console.log(m.state === 'waiting' ? `Memo ${id} has the note. It waits for ${m.sender}.` : `Memo ${id} has the note. It is in the Inbox of ${m.recipient} again.`);
   },
   async close() {
     const id = memoId(rest[0]);
@@ -273,6 +275,13 @@ const commands = {
     const memos = await call(`/api/list?to=${query(need('to'))}`);
     if (!memos.length) console.log(`No open memos to ${flags.to}.`);
     if (memos.length) console.log(await showAll(memos));
+    // The memos of this agent that the owner sent back. A read only: peek records no delivery.
+    const news = await call(`/api/news?for=${query(flags.to)}&peek=1`);
+    const waits = news.waiting || [];
+    if (waits.length) {
+      console.log(`\nMemos from ${flags.to} that wait for your answer:\n\n${await showAll(waits, true)}`);
+      console.log(`Answer each one in the memo: memo note <id> --from ${flags.to} -- "<text>".`);
+    }
   },
   // Stores an image file in Memo and prints the Markdown that shows it. Put the printed text into a memo.
   async image() {
@@ -365,19 +374,22 @@ const commands = {
         const fresh = news.to_you.filter((c) => !hold.includes(c.id));
         const noted = news.noted || [];
         if (fresh.length || news.results.length || noted.length) {
-          // The answers first: they leave the list when the agent acks them. The new memos last: they stay
-          // until the agent answers them, and --hold takes them out of the next memo wait.
+          // The server gives each new turn of the owner (noted) one time, so these memos are always printed.
+          // The answers come again until the agent acks them. The new memos stay until the agent answers them,
+          // and --hold takes them out of the next memo wait.
           const items = [
-            ...news.results.map((c) => ({ kind: 'result', c, own: true })),
             ...noted.map((c) => ({ kind: 'noted', c, own: true })),
+            ...news.results.map((c) => ({ kind: 'result', c, own: true })),
             ...fresh.map((c) => ({ kind: 'fresh', c, own: false })),
           ];
           let size = 0;
+          let full = false;
           const done = [];
           for (const item of items) {
+            if (full && item.kind !== 'noted') continue;
             const text = await shown(item.c, item.own);
             // The first memo is always printed in full, so a memo that is longer than the limit cannot block the wait.
-            if (done.length && size + text.length > WAIT_MAX) break;
+            if (item.kind !== 'noted' && done.length && size + text.length > WAIT_MAX) { full = true; continue; }
             size += text.length;
             done.push({ ...item, text });
           }
@@ -388,9 +400,9 @@ const commands = {
             console.log(`After you read the results, run: memo ack ${ids(of('result'))}\n`);
           }
           if (of('noted').length) {
-            console.log(`Open memos from ${who} with a new note of the owner. Each memo stays open:\n\n${of('noted').map((d) => d.text).join('\n')}`);
-            console.log(`Do what each note asks. Answer in the memo with: memo note <id> --from ${who} "<text>". To change the memo text, use memo edit.`);
-            console.log(`If no answer is necessary, run: memo ack ${ids(of('noted'))}\n`);
+            console.log(`Memos from ${who} that wait for your answer. The owner sent each one back with a new note. The full thread is in order, oldest first:\n\n${of('noted').map((d) => d.text).join('\n')}`);
+            console.log(`Do what the new note asks. Then answer in the same memo: memo note <id> --from ${who} -- "<text>". The memo then goes back to the owner. Do not send a new memo for the answer.`);
+            console.log(`To change the memo text, use memo edit <id> -- "<new text>". It also sends the memo back. memo wait gives each note one time; memo list --to ${who} shows the memos that still wait for your answer.\n`);
           }
           if (of('fresh').length) console.log(`New memos to ${who}:\n\n${of('fresh').map((d) => d.text).join('\n')}`);
           const left = items.length - done.length;

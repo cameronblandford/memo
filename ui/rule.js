@@ -29,7 +29,7 @@ export function ruleMarker(agent, rule) {
 export function ruleText({ agent, rule, why }) {
   return `**${agent} asks for a Claude Code permission rule.** ${why}\n\n`
     + `The rule for the settings file of ${agent}:\n\n\`\`\`\n${rule}\n\`\`\`\n\n`
-    + `Approve rule adds it to permissions.allow, and ${agent} gets the result. Reply or Close refuses it.\n\n`
+    + `Approve rule adds it to permissions.allow, and ${agent} gets the result. Done refuses it (write the reason in the box first).\n\n`
     + ruleMarker(agent, rule);
 }
 
