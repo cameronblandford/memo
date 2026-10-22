@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/ui/common.css">
 </head>
 <body>
-<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><select id="sort" aria-label="Order" title="The order of the memos: Rank (due soon, then impact per effort) or Recently updated (the newest send, note, edit, or return from a postpone first)"><option value="rank">Rank</option><option value="updated">Recently updated</option></select><button id="compact" type="button" aria-pressed="false" title="Collapse all memos to their name and next step. A click on a memo opens it. A click here when all are collapsed shows all memos in full. Key: c">Collapse</button><span id="view" role="group" aria-label="View"><button type="button" data-view="list" aria-pressed="true" title="All memos in a list">List</button><button type="button" data-view="card" aria-pressed="false" title="One memo at a time, in the order and with the filter of the list. Swipe or use the arrow keys to go to the next or the previous memo">One card</button></span><a href="/chat">Chat</a><a href="/agents">Agents</a><a href="/log">Log</a></header>
+<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><select id="sort" aria-label="Order" title="The order of the memos: Rank (due soon, then impact per effort) or Recently updated (the newest send, note, edit, or return from a postpone first)"><option value="rank">Rank</option><option value="updated">Recently updated</option></select><button id="compact" type="button" aria-pressed="false" title="Collapse all memos to their name and next step. A click on a memo opens it. A click here when all are collapsed shows all memos in full. Key: c">Collapse</button><span id="view" role="group" aria-label="View"><button type="button" data-view="list" aria-pressed="true" title="All memos in a list">List</button><button type="button" data-view="card" aria-pressed="false" title="One memo at a time, in the order and with the filter of the list. Swipe or use the arrow keys to go to the next or the previous memo">One card</button></span><a href="/desk">Desk</a><a href="/chat">Chat</a><a href="/agents">Agents</a><a href="/log">Log</a></header>
 <form id="token-form" hidden>
   <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
   <button>Save</button>
@@ -96,7 +96,8 @@ function toggleOpen(id) {
 }
 // In the Recently updated order, a memo that changed after its send shows the time of that change too.
 const changedAt = (memo) => (sort === 'updated' && memo.updated && memo.updated !== memo.created ? ` · updated ${age(memo.updated)}` : '');
-const factsOf = (memo) => ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}${changedAt(memo)}`;
+// The ticket key of the Desk (for example TFP-797) shows after the facts, when the memo names a ticket.
+const factsOf = (memo) => ` impact ${memo.impact} · ${memo.effort}${memo.due ? ` · due ${memo.due}` : ''} · ${age(memo.created)}${changedAt(memo)}${memo.ticket ? ` · ${memo.ticket}` : ''}`;
 // The number of the memo, small and dim in the top right corner of the card, so the owner can name the memo in a chat.
 // It comes first in the meta line and floats right; the new tag floats just left of it.
 const numberOf = (memo) => el('span', { className: 'num' }, `#${memo.id}`);

@@ -8,7 +8,7 @@ import { summary } from '../ui/markdown.js';
 import { ruleProblem, ruleText } from '../ui/rule.js';
 
 const USAGE = `Usage:
-  memo send --from <name> --to <name> [--impact 1-5 --effort micro|short|hour|half-day|day] [--due YYYY-MM-DD] [--tag <tag> ...] [--title <name>] [--next <step>] [--] <text>
+  memo send --from <name> --to <name> [--impact 1-5 --effort micro|short|hour|half-day|day] [--due YYYY-MM-DD] [--tag <tag> ...] [--title <name>] [--next <step>] [--ticket <KEY>] [--] <text>
   memo tag <id> <tag> [<tag> ...]
   memo untag <id> <tag> [<tag> ...]
   memo postpone <id> <YYYY-MM-DD> | memo postpone <id> now
@@ -32,6 +32,8 @@ const USAGE = `Usage:
   memo tick add --impact 1-5 --effort <effort> [--days mon,wed,fri] [--every <days>] [--after HH:MM] [--by HH:MM] [--] <text>
   memo tick set <id> [--impact ...] [--effort ...] [--days ...] [--every ...] [--after ...] [--by ...] [<new text>]
   memo tick list | memo tick remove <id> | memo tick log [<days>]
+  memo ticket set <KEY> [--agent <name>] [--state queued|working|needs_you|in_review|landing|done] [--pr <url>] [--summary <one line>] [--title <title>] [--url <Linear url>] [--as <name>]
+  memo ticket list
 A memo to the owner needs --impact and --effort (memo rule has impact 4 and effort micro). --title and --next are the brief for the compact view of the Inbox.`;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -80,7 +82,7 @@ async function call(path, body, { soft = false } = {}) {
   return data;
 }
 
-const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by', 'tag', 'title', 'next', 'rule', 'why'];
+const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by', 'tag', 'title', 'next', 'rule', 'why', 'ticket', 'agent', 'state', 'pr', 'summary', 'url'];
 // An option that can come more than one time. Its value is a list.
 const REPEATED = ['tag'];
 function parse(argv) {
@@ -153,6 +155,7 @@ function show(c) {
     + (c.impact != null ? `, impact ${c.impact}, effort ${c.effort}` : '')
     + (c.due ? `, due ${c.due}` : '')
     + (c.tags?.length ? `, tags ${c.tags.join(' ')}` : '')
+    + (c.ticket ? `, ticket ${c.ticket}` : '')
     + (c.until ? `, postponed until ${when(c.until)}` : '')
     + (c.state !== 'open' ? `, ${c.state}` : '');
   return `${head}\n${c.text}\n${notesOf(c)}${c.reply ? `Reply: ${c.reply}\n` : ''}`;
@@ -184,9 +187,9 @@ const commands = {
     const r = await call('/api/send', {
       from: need('from'), to: need('to'), text: rest.join(' '),
       impact: flags.impact === undefined ? undefined : Number(flags.impact),
-      effort: flags.effort, due: flags.due, tags: flags.tag, title: flags.title, next: flags.next,
+      effort: flags.effort, due: flags.due, tags: flags.tag, title: flags.title, next: flags.next, ticket: flags.ticket,
     });
-    console.log(`Memo ${r.memo.id} is sent to ${r.memo.recipient}.${r.memo.tags?.length ? ` Tags: ${r.memo.tags.join(' ')}.` : ''}`);
+    console.log(`Memo ${r.memo.id} is sent to ${r.memo.recipient}.${r.memo.tags?.length ? ` Tags: ${r.memo.tags.join(' ')}.` : ''}${r.memo.ticket ? ` Ticket: ${r.memo.ticket}.` : ''}`);
     if (r.corrections.length) {
       console.log('The owner changed the impact of your last memos. Use this when you select an impact:');
       for (const k of r.corrections) console.log(`  memo ${k.memo_id}: ${k.old_impact} to ${k.new_impact} ("${k.text.replace(/\s+/g, ' ')}")`);
@@ -328,6 +331,29 @@ const commands = {
       if (!ticks.length) console.log('No ticks are active.');
       // One letter for each day, the newest day last. d: done. s: skipped. A point: no mark.
       for (const t of ticks) console.log(`${line(t)}\n  ${t.from} to ${t.to}: ${t.states.map((s) => (s === 'done' ? 'd' : s === 'skip' ? 's' : '.')).join('')}  done ${t.done}, skipped ${t.skipped}`);
+    } else fail(USAGE);
+  },
+  // The Desk: one ticket is one task. See "The Desk" in README.md. Memo never writes to Linear.
+  async ticket() {
+    const [action, key, ...words] = rest;
+    const line = (t) => `${t.key} ${t.title}`
+      + (t.linear_state ? ` [Linear: ${t.linear_state}]` : '')
+      + (t.agent ? ` · ${t.agent}` : '')
+      + (t.pr_url ? ` · PR ${t.pr_number ? `#${t.pr_number}` : t.pr_url}` : '')
+      + (t.summary ? `\n    ${t.summary}` : '')
+      + (t.question ? `\n    Open memo #${t.question.id} from ${t.question.sender}: ${t.question.title}${t.questions > 1 ? ` (+${t.questions - 1} more)` : ''}` : '');
+    if (action === 'set') {
+      if (!key) fail('Give the ticket key, for example: memo ticket set TFP-797 --state working');
+      if (words.length) fail('Give the fields with --agent, --state, --pr, --summary, --title, and --url.');
+      const t = await call('/api/ticket', { key, agent: flags.agent, state: flags.state, pr: flags.pr, summary: flags.summary, title: flags.title, url: flags.url, as: flags.as });
+      console.log(`Ticket ${t.key}: ${t.desk_state ?? 'not on the Desk'}${t.agent ? `, agent ${t.agent}` : ''}${t.pr_url ? `, PR ${t.pr_url}` : ''}.`);
+    } else if (action === 'list') {
+      const d = await call('/api/tickets');
+      const out = [];
+      for (const g of d.groups) if (g.tickets.length) out.push(`${g.label} (${g.tickets.length}):\n${g.tickets.map((t) => `  ${line(t)}`).join('\n')}`);
+      if (d.backlog.length) out.push(`Backlog, no agent (${d.backlog.length}):\n${d.backlog.map((t) => `  ${line(t)}`).join('\n')}`);
+      console.log(out.length ? out.join('\n\n') : 'The Desk has no tickets.');
+      if (d.sync?.on) console.log(`\nLinear sync: ${d.sync.last ? `${d.sync.ok ? 'ok' : `failed (${d.sync.error})`} at ${when(d.sync.last)}` : 'not run yet'}.`);
     } else fail(USAGE);
   },
   async wait() {
