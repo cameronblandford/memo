@@ -160,6 +160,8 @@ The agents are in `agents.json`. To add an agent, add an entry and a file `chart
 
 To show the live output of an agent on the Agents page, give it the directory of its Claude Code transcripts, for example `"transcripts": "~/.claude/projects/-Users-you-work"` (the name is the `dir` of the agent with each `/` changed to `-`). The page asks for new output each 3 seconds and shows the last 50 entries of the newest `.jsonl` file there. It shows only the visible text of the agent and, for each tool call, the tool name and its short description: never tool inputs, tool results, or thinking. An agent with no `transcripts` shows no output.
 
+The Agents page shows the computer of each agent next to its name. Give it with `"computer"`, a short name with only letters, digits, and `-` (for example the Tailscale machine name, `"computer": "workmac"`). A local agent (`long` or `short`) with no `computer` shows the computer of the server: its host name without the domain (`playmac.local` shows as `playmac`). A remote agent with no `computer` shows no name.
+
 ## Permission rules from the Inbox
 
 An agent that the Claude Code permission check blocks can ask for a rule:
@@ -193,7 +195,7 @@ A remote agent has its session on a different computer from the server. Use it w
 
 On the server:
 
-1. Add the agent to `agents.json` with the kind `remote`, for example `{ "name": "mac", "kind": "remote" }`.
+1. Add the agent to `agents.json` with the kind `remote` and the name of its computer, for example `{ "name": "mac", "kind": "remote", "computer": "workmac" }`.
 2. Add its charter, `charters/mac.md`.
 3. Start the server again.
 

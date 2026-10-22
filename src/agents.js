@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { localFile } from './paths.js';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { hostname } from 'node:os';
 import { MemoError } from './memos.js';
 import { createEvents } from './events.js';
 import { expandHome, readOutput } from './output.js';
@@ -32,6 +33,11 @@ export function tail(text) {
 
 export const session = (name) => `memo-${name}`;
 
+// A computer name such as "playmac": letters, digits and "-" (a Tailscale machine name).
+const COMPUTER = /^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/;
+// The name of the computer of the server: its host name without the domain ("playmac.local" gives "playmac").
+export const hostComputer = (name = hostname()) => String(name).split('.')[0] || null;
+
 export function loadConfig(path, owner = 'owner') {
   const RESERVED = [owner, 'discord'];
   const config = JSON.parse(readFileSync(path, 'utf8'));
@@ -47,6 +53,8 @@ export function loadConfig(path, owner = 'owner') {
     // Optional: the Claude Code settings file of the agent. The owner can approve a permission rule for it in the Inbox.
     if (a.settings !== undefined && (typeof a.settings !== 'string' || !a.settings)) throw new Error(`agents.json: the settings of ${a.name} must be a file path.`);
     if (a.settings !== undefined && a.kind === 'remote') throw new Error(`agents.json: ${a.name} is a remote agent. Its settings file is on a different computer, so it cannot have "settings" here.`);
+    // Optional: the name of the computer of the agent, for the Agents page. A local agent has the computer of the server by default.
+    if (a.computer !== undefined && (typeof a.computer !== 'string' || !COMPUTER.test(a.computer))) throw new Error(`agents.json: the computer of ${a.name} must be a short name with only letters, digits, and "-".`);
     if (!['long', 'short', 'remote'].includes(a.kind)) throw new Error(`agents.json: the kind of ${a.name} must be "long", "short", or "remote".`);
     // The session of a remote agent is on a different computer, and the agents.json of that computer gives its dir and model.
     if (a.kind === 'remote') continue;
@@ -81,7 +89,7 @@ export function realTmux() {
   };
 }
 
-export function createAgents({ db, config, root, tmux, owner = 'owner', counts = () => ({}), now = () => new Date(), recapTimeoutMs = 180000 }) {
+export function createAgents({ db, config, root, tmux, owner = 'owner', computer = hostComputer(), counts = () => ({}), now = () => new Date(), recapTimeoutMs = 180000 }) {
   const ts = () => now().toISOString();
   const timers = new Map();
   const contacts = new Map(); // remote agent -> the time of its last request, in milliseconds
@@ -123,7 +131,7 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', counts =
       const r = row(a.name);
       const last = contacts.get(a.name);
       return {
-        name: a.name, kind: a.kind, running: a.kind === 'long' && running(a.name),
+        name: a.name, kind: a.kind, computer: a.computer ?? (a.kind === 'remote' ? null : computer), running: a.kind === 'long' && running(a.name),
         ...(a.kind === 'remote' ? { online: last !== undefined && now().getTime() - last < ONLINE_MS, contact: last === undefined ? null : new Date(last).toISOString() } : {}),
         status: r.text, updated: r.updated, recap: r.recap, recap_at: r.recap_at,
         stopping_since: r.stopping_since, last_stop: r.last_stop, output: !!a.transcripts, rules: !!a.settings, ...counts(a.name),

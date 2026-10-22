@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { openDb } from '../src/db.js';
 import { MemoError } from '../src/memos.js';
-import { createAgents, loadConfig, realTmux, session, stopMessage, continueMessage } from '../src/agents.js';
+import { createAgents, loadConfig, realTmux, session, stopMessage, continueMessage, hostComputer } from '../src/agents.js';
 
 const CONFIG = [
   { name: 'main', kind: 'long', dir: '~/p', model: 'm' },
@@ -353,4 +353,28 @@ test('the screen says when a dialog waits and when the text last changed', () =>
   tmux.screens.set(session('main'), 'Teach auto mode about your environment?\n  Enter to confirm · Esc to cancel');
   assert.equal(agents.screen('main').dialog, true);
   assert.equal(agents.screen('main').changed, '2026-01-01T10:01:00.000Z');
+});
+
+test('each agent shows its computer: its own "computer", or the computer of the server for a local agent', () => {
+  const config = [...CONFIG, { name: 'mac', kind: 'remote', computer: 'workmac' }, { name: 'far', kind: 'remote' }];
+  const { agents } = make({ config, computer: 'playmac' });
+  assert.deepEqual(agents.list().map((a) => [a.name, a.computer]), [['main', 'playmac'], ['liaison', 'playmac'], ['mac', 'workmac'], ['far', null]]);
+  const own = make({ config: [{ ...CONFIG[0], computer: 'other-1' }], computer: 'playmac' }).agents;
+  assert.equal(own.list()[0].computer, 'other-1');
+});
+
+test('hostComputer drops the domain of the host name', () => {
+  assert.equal(hostComputer('playmac.local'), 'playmac');
+  assert.equal(hostComputer('workmac'), 'workmac');
+  assert.equal(typeof hostComputer(), 'string');
+});
+
+test('loadConfig accepts a short computer name and refuses a wrong one', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'memo-config-'));
+  const write = (value) => { writeFileSync(join(dir, 'agents.json'), JSON.stringify(value)); return join(dir, 'agents.json'); };
+  const good = [{ name: 'mac', kind: 'remote', computer: 'work-mac2' }];
+  assert.deepEqual(loadConfig(write(good)), good);
+  for (const computer of ['', 'a b', 'mac.local', 'a/b', 7, '-mac', 'x'.repeat(64)]) {
+    assert.throws(() => loadConfig(write([{ name: 'mac', kind: 'remote', computer }])), /computer/);
+  }
 });
