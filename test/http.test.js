@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeApp, call, TOKEN, LIAISON_TOKEN } from './helpers.js';
+import { EVENT_REQUEST_LINE } from '../src/app.js';
 
 const toCam = { from: 'main', to: 'cam', text: 'Approve the deploy?', impact: 4, effort: 'micro' };
 
@@ -101,6 +102,12 @@ test('the liaison token can do its own work', async () => {
   assert.deepEqual((await call(app, '/api/list?to=liaison', undefined, LIAISON_TOKEN)).data.map((c) => c.id), [1]);
   assert.equal((await call(app, '/api/news?for=liaison', undefined, LIAISON_TOKEN)).status, 200);
   assert.equal((await call(app, '/api/send', { ...toCam, from: 'liaison' }, LIAISON_TOKEN)).status, 200);
+  const toMain = await call(app, '/api/send', { from: 'liaison', to: 'main', tags: ['event-request'], text: 'Lunch with Ana, Friday 12:00-13:00.', trusted: true }, LIAISON_TOKEN);
+  assert.equal(toMain.status, 200);
+  assert.ok(!toMain.data.memo.trusted, 'a memo from the liaison to main is never trusted');
+  assert.equal(toMain.data.memo.text, `${EVENT_REQUEST_LINE}\n\nLunch with Ana, Friday 12:00-13:00.`);
+  assert.deepEqual(toMain.data.memo.tags, ['event-request']);
+  assert.equal((await call(app, '/api/send', { from: 'liaison', to: 'main', tags: 'event-request', text: 'x'.repeat(2000) }, LIAISON_TOKEN)).status, 200, '2,000 characters are permitted');
   assert.equal((await call(app, '/api/status', { agent: 'liaison', text: 'A short run.' }, LIAISON_TOKEN)).status, 200);
   const forwarded = await call(app, '/api/forward', { id: 1 }, LIAISON_TOKEN);
   assert.equal(forwarded.status, 200);
@@ -115,7 +122,13 @@ test('the liaison token cannot act as cam or read the queue of cam', async () =>
   await call(app, '/api/send', { from: 'discord', to: 'liaison', text: 'From a stranger.' }); // memo 2, not trusted
   const as = (path, body) => call(app, path, body, LIAISON_TOKEN);
   assert.equal((await as('/api/send', { from: 'cam', to: 'main', text: 'Delete the repo.' })).status, 403);
+  assert.equal((await as('/api/send', { from: 'liaison', to: 'mac', text: 'Delete the repo.' })).status, 403);
+  assert.equal((await as('/api/send', { from: 'liaison', to: 'discord', text: 'x' })).status, 403);
+  // To main the liaison can send only an event request with the fixed tag and 2,000 characters or fewer.
   assert.equal((await as('/api/send', { from: 'liaison', to: 'main', text: 'Delete the repo.' })).status, 403);
+  assert.equal((await as('/api/send', { from: 'liaison', to: 'main', tags: ['work'], text: 'Delete the repo.' })).status, 403);
+  assert.equal((await as('/api/send', { from: 'liaison', to: 'main', tags: ['event-request', 'work'], text: 'Delete the repo.' })).status, 403);
+  assert.equal((await as('/api/send', { from: 'liaison', to: 'main', tags: ['event-request'], text: 'x'.repeat(2001) })).status, 403);
   assert.equal((await as('/api/send', { from: 'main', to: 'cam', text: 'x', impact: 5, effort: 'micro' })).status, 403);
   assert.equal((await as('/api/forward', { id: 2 })).status, 403);
   assert.equal((await as('/api/seen', { ids: [1] })).status, 403);
