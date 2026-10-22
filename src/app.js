@@ -31,7 +31,8 @@ const same = (a, b) => timingSafeEqual(digest(a), digest(b));
 
 // ticksOn: the ticks are an optional part. They are off unless MEMO_TICKS is set (see README.md).
 // ownerToken: the optional token of the owner alone (MEMO_OWNER_TOKEN). The agents have token (MEMO_TOKEN).
-export function createApp({ store, agents, images, ticks, ticksOn = false, root, token, liaisonToken, ownerToken, owner = 'owner', tailscale, now = () => new Date() }) {
+// tickets: the Desk (src/tickets.js). linear: the read-only Linear sync (src/linear.js), or none.
+export function createApp({ store, agents, images, ticks, tickets, linear, ticksOn = false, root, token, liaisonToken, ownerToken, owner = 'owner', tailscale, now = () => new Date() }) {
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -63,6 +64,7 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
   app.get('/agents', page('agents.html'));
   app.get('/log', page('log.html'));
   app.get('/chat', page('chat.html'));
+  app.get('/desk', page('desk.html'));
   app.get('/ui/:file', (c) => {
     const file = c.req.param('file');
     if (!Object.hasOwn(UI, file)) return c.notFound();
@@ -107,6 +109,8 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     const b = await body(c);
     // The liaison can send to the owner, or to main (an event request for the owner's calendar). Its memos are never trusted.
     only(c, b.from === LIAISON && (b.to === owner || b.to === 'main'));
+    // Only the full token and the owner can link a memo to a ticket of the Desk.
+    only(c, b.ticket === undefined || b.ticket === null);
     if (c.get('role') !== 'full') delete b.trusted;
     if (c.get('role') === LIAISON && b.to === 'main') {
       // To main the liaison can send only an event request: one fixed tag, a short text, and a first line from the server.
@@ -317,6 +321,41 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     const b = await body(c);
     only(c, false);
     return c.json(agents.key(b.name, b.key));
+  });
+  // The Desk: the tickets in their groups, the Backlog, the agents that can start a ticket, and the state of the sync.
+  // Only the full token and the owner: the liaison token gets 403 on each ticket route.
+  app.get('/api/tickets', (c) => {
+    only(c, false);
+    return c.json({
+      ...tickets.board(),
+      agents: agents.work().map((a) => a.name),
+      sync: linear ? linear.status() : { on: false },
+    });
+  });
+  // memo ticket set: the agent, the Desk state, the PR, the one-line summary (and the title and address of a ticket
+  // that the sync does not bring). as: the name for the event log.
+  app.post('/api/ticket', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    const names = agents.list().map((a) => a.name);
+    const actor = typeof b.as === 'string' && [owner, ...names].includes(b.as) ? b.as : (c.get('isOwner') ? owner : 'agent');
+    return c.json(tickets.set(b.key, { agent: b.agent, state: b.state, pr: b.pr, summary: b.summary, title: b.title, url: b.url }, actor));
+  });
+  // The Start button of the Backlog: a memo from the owner to the agent with the ticket, and the ticket is queued.
+  app.post('/api/ticket/start', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    const t = tickets.get(b.key);
+    const work = agents.work().map((a) => a.name);
+    if (!work.includes(b.agent)) throw new MemoError(400, `agent must be one of: ${work.join(', ')}.`);
+    const { memo } = store.send({ from: owner, to: b.agent, text: [`Work on ${t.key}: ${t.title}`, t.url].filter(Boolean).join(' '), ticket: t.key });
+    return c.json({ memo, ticket: tickets.set(t.key, { agent: b.agent, state: 'queued' }, owner) });
+  });
+  // Sync now (the Desk page). Without LINEAR_API_KEY there is no sync.
+  app.post('/api/ticket/sync', async (c) => {
+    only(c, false);
+    if (!linear?.status().on) throw new MemoError(400, 'The Linear sync is off. To switch it on, put LINEAR_API_KEY in .env and start the server again.');
+    return c.json(await linear.runOnce());
   });
   app.get('/api/agent/prompt', (c) => {
     only(c, false);

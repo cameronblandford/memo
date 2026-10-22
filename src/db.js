@@ -113,5 +113,32 @@ export function openDb(path = ':memory:') {
   // The answer buttons of a memo to the owner, written by the sender: 'push,draft,skip' (empty: no buttons).
   // A tap on a button replies with that word. The old memos get no buttons.
   if (!memoColumns.includes('choices')) db.exec("ALTER TABLE memos ADD COLUMN choices TEXT NOT NULL DEFAULT ''");
+  // The Desk (src/tickets.js): the ticket key of a memo, for example TFP-797. NULL: the memo has no ticket.
+  if (!memoColumns.includes('ticket')) db.exec('ALTER TABLE memos ADD COLUMN ticket TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS memos_ticket ON memos (ticket) WHERE ticket IS NOT NULL');
+  // One ticket is one task of an agent. The Linear part comes from the read-only sync (src/linear.js), or from the
+  // agent that adds the ticket. Memo never writes to Linear. The Memo part is the work on the Desk.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tickets (
+      key TEXT PRIMARY KEY,                 -- the Linear identifier, for example TFP-797
+      title TEXT NOT NULL,
+      url TEXT,                             -- the address of the issue in Linear
+      linear_state TEXT,                    -- the name of the Linear state, for example "In Progress". Read only.
+      linear_type TEXT,                     -- the type of that state: triage, backlog, unstarted, started, completed, canceled
+      team TEXT,                            -- the team key, for example TFP
+      priority INTEGER,                     -- Linear: 0 none, 1 urgent, 2 high, 3 medium, 4 low
+      assignee_is_owner INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT,                      -- the last change in Linear
+      synced_at TEXT,                       -- the last sync that brought the issue; NULL: not from the sync
+      agent TEXT,                           -- the agent that works on the ticket; NULL: no agent
+      desk_state TEXT,                      -- queued | working | needs_you | in_review | landing | done; NULL: not on the Desk
+      desk_at TEXT,                         -- the time of the last change of the Memo part
+      pr_url TEXT,
+      pr_number INTEGER,
+      summary TEXT,                         -- one line from the agent
+      done_at TEXT,                         -- the time of the change to done
+      created TEXT NOT NULL
+    );
+  `);
   return db;
 }

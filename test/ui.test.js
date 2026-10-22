@@ -30,6 +30,19 @@ test('the ui route gives only the two shared files', async () => {
   assert.equal((await get('/ui/constructor')).status, 404);
 });
 
+test('each name that a page imports from a ui module is exported by that module', async () => {
+  for (const name of readdirSync(join(ROOT, 'ui')).filter((n) => n.endsWith('.html') || n.endsWith('.js'))) {
+    const source = readFileSync(join(ROOT, 'ui', name), 'utf8');
+    for (const [, names, file] of source.matchAll(/import \{([^}]+)\} from '\/ui\/([a-z-]+\.js)'/g)) {
+      const mod = await import(`../ui/${file}`).catch(() => null);
+      if (!mod) continue; // a module with browser-only code cannot load in node
+      for (const n of names.split(',').map((x) => x.trim().split(/\s+as\s+/)[0]).filter(Boolean)) {
+        assert.ok(n in mod, `ui/${name} imports ${n}, but ui/${file} does not export it`);
+      }
+    }
+  }
+});
+
 test('the pages put text into the document only as text', () => {
   for (const name of readdirSync(join(ROOT, 'ui'))) {
     const source = readFileSync(join(ROOT, 'ui', name), 'utf8');

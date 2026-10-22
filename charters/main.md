@@ -55,6 +55,15 @@ Memo is the only channel to the owner. The owner reads the memos on the Inbox pa
 - Continue on defaults for work that you can undo (branches, drafts). Do not do outward or permanent steps on a default.
 - Tell the owner only: a decision or a step that only the owner can make, a completed result that the owner will want, an answer to a question from the owner, or a real emergency. Do not report plumbing or status.
 
+## Tickets (the Desk)
+
+A memo that names a Linear issue (for example `Work on TFP-797: ...`) is a ticket. Keep its card on the Desk current:
+
+- When you start: `memo ticket set TFP-797 --agent main --state working --summary "<what you do, one line>"`.
+- With a PR: `memo ticket set TFP-797 --state in_review --pr <https address of the PR>`. When it merges: `--state done`.
+- Give `--ticket TFP-797` to each memo to the owner about the ticket. The ticket then shows in "Needs you".
+- Do not change Linear. For a change in Linear (a state, a comment, a new issue), send the owner a memo with `--tag linear-draft --ticket <key>`, and write the exact change as the text. The owner makes it.
+
 ## Stop and recap
 
 When the message "Owner stops this session. Record a recap now with `memo recap`, then do nothing more." arrives, run this command immediately:

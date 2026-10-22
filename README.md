@@ -45,6 +45,7 @@ The file `.env` holds the configuration and the two tokens. Git ignores it. Its 
 | `DATABASE_PATH` | The SQLite file. The default is `./data/memo.db`. |
 | `MEMO_TOKEN` | The token of the owner and of the agent `main`. It can do all operations. |
 | `MEMO_OWNER_TOKEN` | Optional. The token of the owner alone. It can do all operations, and it can approve a permission rule (see below). Do not give it to an agent. |
+| `LINEAR_API_KEY`, `LINEAR_SYNC_MINUTES` | Optional. A Linear API key with read access, for the sync of the Desk (see "The Desk"), and the minutes between two syncs (default 10). |
 | `MEMO_LIAISON_TOKEN` | The token of the liaison run. It can only read the memos to `liaison`, send a memo to the owner or an event request to `main` (tag `event-request`), close a memo to `liaison`, mark its own results as read, set its own status line, and forward a Discord message that the owner wrote (one time for each message). |
 
 To copy the token for a page (macOS), run `sed -n 's/^MEMO_TOKEN=//p' .env | tr -d '\n' | pbcopy` in the directory of this repository.
@@ -203,6 +204,53 @@ Open `http://127.0.0.1:3280/chat`. It shows the memos between the owner and one 
 - The page shows the newest 50 memos. "Show older memos" shows 50 more, up to 500. The page loads again each 5 seconds.
 - The page reads `GET /api/thread?agent=<name>&limit=<n>`. The read records no delivery and no "seen". The liaison token cannot read it.
 
+## The Desk
+
+Open `http://127.0.0.1:3280/desk`. The Desk is a board of tickets. One ticket is one task of an agent, and one Linear issue, for example `TFP-797`.
+
+The groups, from the top: **Needs you**, **Working**, **In review**, **Landing**, **Queued**, and **Done** (the last 7 days, closed). A row of count chips is at the top; tap a chip to show only that group, and tap it again to show all. Each card shows the key and the title, the Linear state (small, read only), the agent with its state and the time since the last change, the one-line summary, and the links to the PR and to Linear.
+
+A ticket is in Needs you when its Desk state is `needs_you`, or when an open memo to the owner names it (`memo send --ticket`). The card then shows that memo, with a field to reply. A postponed memo does not count.
+
+The **Backlog** is under the groups: the Linear issues of the owner from the sync that have no agent and are not closed. "Start" sends a memo from the owner to the selected agent ("Work on TFP-797: <title> <Linear address>", with the ticket) and puts the ticket in Queued.
+
+### The commands of the agents
+
+```sh
+scripts/memo ticket set TFP-797 --agent main --state working --summary "I write the test for the redirect."
+scripts/memo ticket set TFP-797 --state in_review --pr https://github.com/acme/web/pull/1234
+scripts/memo ticket set TFP-797 --state done
+scripts/memo ticket list
+scripts/memo send --from main --to owner --impact 3 --effort micro --ticket TFP-797 "Keep the old route?"
+```
+
+- The states are `queued`, `working`, `needs_you`, `in_review`, `landing`, and `done`. A ticket that gets an agent and has no state is queued.
+- `ticket set` adds the ticket if it is not there. For a ticket that is not in Linear, give `--title` (and `--url`). An empty value (`--pr ''`) removes a field. `--as <name>` names the agent in the Log.
+- The PR address must be https; the Desk shows the number of a GitHub PR.
+- A memo with `--ticket` names the ticket. A memo with a key that the Desk does not have adds a ticket with the key as its title; the next sync fills in the rest.
+- Each change is an event `ticket` on the Log page. The status line of an agent stays as it is.
+- Only `MEMO_TOKEN` and the owner can read or change tickets. The liaison token gets 403, also for `memo send --ticket`.
+
+### Linear: read only
+
+Memo never writes to Linear. The sync is optional:
+
+1. In Linear, make a personal API key: Settings, Account, Security & access, Personal API keys. Give it read access only.
+2. Put it into `.env` as `LINEAR_API_KEY=...`. Optional: `LINEAR_SYNC_MINUTES` (the default is 10).
+3. Start the server again.
+
+Each 10 minutes the server sends one GraphQL query to Linear for the issues that are assigned to the owner of the key: the open issues, and the closed issues that changed in the last 7 days. It changes only the Linear part of a ticket (title, address, state, team, priority); the agent, the Desk state, the PR, and the summary stay. "Sync now" at the end of the Desk page runs it immediately. The client in `src/linear.js` refuses any document that contains `mutation` or `subscription`, before a request. Without the key, the Desk has only the tickets that the agents add.
+
+### A change in Linear: a draft for the owner
+
+An agent that wants a change in Linear (a new state, a comment, a new issue) does not make it. It sends the owner a memo with the tag `linear-draft` and the ticket, and the text is the exact change:
+
+```sh
+scripts/memo send --from main --to owner --impact 2 --effort micro --tag linear-draft --ticket TFP-797 --title "Linear: TFP-797 to In Review" -- "Set the state of TFP-797 to In Review. Comment: The PR is https://github.com/acme/web/pull/1234."
+```
+
+The ticket shows in Needs you with the label "Linear draft". The owner makes the change in Linear and closes the memo, or replies to refuse it.
+
 ## An agent on a different computer
 
 A remote agent has its session on a different computer from the server. Use it when the server is always on (for example in the cloud) and some work needs a computer that is not always on.
@@ -300,6 +348,8 @@ To scan a range by hand: `scripts/pre-push-scan.sh --range origin/main..main`
 | `src/agents.js` | Status, recap, and tmux control of the agents. |
 | `src/events.js` | The event log of the Log page. |
 | `src/rules.js` | The approval of a permission rule: the checks, and the change of the settings file. |
+| `src/tickets.js` | The tickets of the Desk: the Memo part, the groups, and the Backlog. |
+| `src/linear.js` | The read-only Linear sync. It refuses a mutation. |
 | `src/app.js` | The HTTP routes and the two tokens. |
 | `scripts/memo.mjs` | The command-line client. |
 | `scripts/agent.sh` | Starts the session of a long agent. |

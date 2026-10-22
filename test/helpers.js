@@ -7,6 +7,7 @@ import { createStore } from '../src/memos.js';
 import { createAgents } from '../src/agents.js';
 import { createApp } from '../src/app.js';
 import { createTicks } from '../src/ticks.js';
+import { createTickets } from '../src/tickets.js';
 
 export const TOKEN = 'full-token-0123456789';
 export const LIAISON_TOKEN = 'liaison-token-0123456789';
@@ -17,16 +18,17 @@ export const CONFIG = [
   { name: 'liaison', kind: 'short', dir: '~/p', model: 'm' },
 ];
 
-export function makeApp({ tailscale, config = CONFIG, ticksOn = true } = {}) {
+export function makeApp({ tailscale, config = CONFIG, ticksOn = true, linear } = {}) {
   const db = openDb();
-  const store = createStore(db, { owner: 'cam', names: ['cam', 'discord', ...config.map((a) => a.name)], forwardTo: config.filter((a) => a.kind !== 'short').map((a) => a.name) });
+  const tickets = createTickets(db, { owner: 'cam', agents: config.map((a) => a.name) });
+  const store = createStore(db, { owner: 'cam', names: ['cam', 'discord', ...config.map((a) => a.name)], forwardTo: config.filter((a) => a.kind !== 'short').map((a) => a.name), ensureTicket: tickets.ensure });
   const sessions = new Set();
   const tmux = { has: (s) => sessions.has(s), start: (s) => sessions.add(s), kill: (s) => sessions.delete(s), send: () => {}, capture: (s) => (sessions.has(s) ? `Screen of ${s}` : ''), key: () => {} };
   const agents = createAgents({ db, config, root: ROOT, owner: 'cam', tmux, counts: store.counts });
   const images = createImages(mkdtempSync(join(tmpdir(), 'memo-images-')));
   const ticks = createTicks(db);
-  const app = createApp({ store, agents, images, ticks, ticksOn, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, ownerToken: OWNER_TOKEN, owner: 'cam', tailscale });
-  return { app, store, agents, images, ticks, sessions };
+  const app = createApp({ store, agents, images, ticks, tickets, linear, ticksOn, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, ownerToken: OWNER_TOKEN, owner: 'cam', tailscale });
+  return { app, store, agents, images, ticks, tickets, sessions, db };
 }
 
 export async function call(app, path, body, token = TOKEN) {

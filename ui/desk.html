@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memo Desk</title>
+<link rel="stylesheet" href="/ui/common.css">
+<style>
+/* The count chips: one for each group with tickets. A tap shows only that group; a second tap shows all. */
+.counts { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 .75rem; }
+.counts button { padding: .2rem .7rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; font-variant-numeric: tabular-nums; }
+.counts button.hot { border-color: var(--warn); color: var(--warn); }
+.counts button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.group > h2 { display: flex; align-items: baseline; gap: .4rem; }
+.group > h2 .n, .group > details > summary .n { color: var(--dim); font-weight: 400; }
+.group > details > summary { margin: 1.25rem 0 .6rem; font-size: 1rem; font-weight: 600; }
+.ticket { padding: .7rem .9rem; }
+.ticket .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .5rem; }
+.ticket .key { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; text-decoration: none; }
+.ticket a.key:hover { text-decoration: underline; }
+.ticket .lstate { margin-left: auto; padding: 0 .45rem; border: 1px solid var(--line); border-radius: 1rem; color: var(--dim); font-size: .75rem; white-space: nowrap; }
+.ticket .title { margin: .15rem 0 .1rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.ticket .who { color: var(--dim); font-size: .85rem; }
+.ticket .who .agent { color: var(--accent); font-weight: 600; }
+.ticket .summary { margin: .3rem 0 0; overflow-wrap: anywhere; }
+.ticket .links { display: flex; flex-wrap: wrap; gap: .3rem .9rem; margin-top: .45rem; font-size: .85rem; }
+.ticket .links a { color: var(--accent); }
+/* The open question: a memo to the owner that names the ticket. */
+.question { margin: .55rem 0 .1rem; padding: .5rem .65rem; border: 1px solid var(--warn); border-radius: .5rem; }
+.question .q-head { color: var(--dim); font-size: .85rem; }
+.question .q-head b { color: var(--warn); }
+.question .q-head a { color: var(--accent); }
+.question .q-title { margin: .15rem 0; font-weight: 600; overflow-wrap: anywhere; }
+.question .q-title a { color: inherit; }
+.question .next { color: var(--dim); font-size: .9rem; }
+.question .next b { color: var(--accent); font-weight: 600; }
+.question textarea { margin: .45rem 0; }
+.question .md { font-size: .95rem; }
+.start { display: flex; gap: .4rem; margin-top: .5rem; }
+.start select { flex: 1; min-width: 0; }
+#sync { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; }
+#sync button { padding: .15rem .6rem; font-size: .85rem; }
+</style>
+</head>
+<body>
+<header><h1>Desk</h1><a href="/inbox">Inbox</a><a href="/chat">Chat</a><a href="/agents">Agents</a><a href="/log">Log</a></header>
+<form id="token-form" hidden>
+  <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
+  <button>Save</button>
+</form>
+<p id="note" role="status" hidden></p>
+<nav id="counts" class="counts" aria-label="Groups"></nav>
+<main id="board"></main>
+<footer><p id="sync"></p><p>One ticket is one task of an agent. An agent sets the state with memo ticket set. A ticket is in Needs you when an open memo to you names it. Memo never writes to Linear: an agent proposes a Linear change in a memo with the tag linear-draft. The page loads again each 10 seconds.</p></footer>
+<script type="module">
+import { api, el, button, tokenForm, note, age, loadImages } from '/ui/common.js';
+import { render as markdown } from '/ui/markdown.js';
+
+const counts = document.getElementById('counts');
+const board = document.getElementById('board');
+const syncLine = document.getElementById('sync');
+const FILTER_KEY = 'memo-desk-filter';
+let filter = '';
+try { filter = localStorage.getItem(FILTER_KEY) || ''; } catch {}
+const drafts = new Map(); // memo id -> reply text that is not sent
+let data = null;
+let shown = '';
+
+// Only an https address becomes a link. The server checks it too.
+const safe = (u) => { try { const x = new URL(u); return x.protocol === 'https:' ? x.href : null; } catch { return null; } };
+const link = (href, text, title = '') => (safe(href) ? el('a', { href: safe(href), target: '_blank', rel: 'noopener noreferrer', title }, text) : '');
+const STATE = { needs_you: 'Needs you', working: 'Working', in_review: 'In review', landing: 'Landing', queued: 'Queued', done: 'Done' };
+
+function setFilter(value) {
+  filter = filter === value ? '' : value;
+  try { localStorage.setItem(FILTER_KEY, filter); } catch {}
+  shown = '';
+  render();
+}
+
+function questionView(t) {
+  const q = t.question;
+  const area = el('textarea', { rows: 2, placeholder: `Reply to ${q.sender}`, value: drafts.get(q.id) || '' });
+  area.setAttribute('aria-label', `Reply to memo ${q.id}`);
+  area.addEventListener('input', () => drafts.set(q.id, area.value));
+  const reply = button('Reply', async (b) => {
+    if (!area.value.trim()) return note('Write a reply first.');
+    b.disabled = true;
+    try { await api('/api/reply', { id: q.id, text: area.value }); drafts.delete(q.id); note(''); shown = ''; await load(); } catch (error) { note(error.message); } finally { b.disabled = false; }
+  }, 'Send the answer. The memo leaves your Inbox.');
+  const body = el('details', {}, el('summary', {}, 'Show the memo'), el('div', { className: 'md' }, ...markdown(q.text || '', el)));
+  return el('div', { className: 'question' },
+    el('div', { className: 'q-head' }, el('b', {}, q.tags.includes('linear-draft') ? 'Linear draft' : 'Question'), ` from ${q.sender} · ${age(q.created)} · `,
+      el('a', { href: `/log?memo=${q.id}`, title: 'This memo on the Log page' }, `#${q.id}`),
+      t.questions > 1 ? ` · ${t.questions - 1} more in the Inbox` : ''),
+    el('div', { className: 'q-title' }, el('a', { href: `/chat?agent=${encodeURIComponent(q.sender)}`, title: `The chat with ${q.sender}` }, q.title)),
+    q.next ? el('div', { className: 'next' }, el('b', {}, 'Next: '), q.next) : '',
+    body, area, el('div', { className: 'row' }, reply, el('a', { href: '/inbox', className: 'dim' }, 'Open the Inbox')));
+}
+
+function card(t, group) {
+  const facts = [];
+  if (t.agent) facts.push(el('span', { className: 'agent' }, t.agent));
+  if (t.desk_state) facts.push(STATE[t.desk_state]);
+  const when = group === 'done' ? t.done_at : t.desk_at;
+  if (when && t.desk_state) facts.push(age(when));
+  const who = facts.length ? el('div', { className: 'who' }, ...facts.flatMap((f, i) => (i ? [' · ', f] : [f]))) : '';
+  const node = el('article', { className: 'memo ticket' },
+    el('div', { className: 'head' },
+      safe(t.url) ? el('a', { className: 'key', href: safe(t.url), target: '_blank', rel: 'noopener noreferrer', title: 'Open in Linear' }, t.key) : el('span', { className: 'key' }, t.key),
+      t.linear_state ? el('span', { className: 'lstate', title: 'The state in Linear (read only)' }, t.linear_state) : ''),
+    el('div', { className: 'title' }, t.title),
+    who,
+    t.summary ? el('p', { className: 'summary' }, t.summary) : '',
+    t.question ? questionView(t) : '',
+    el('div', { className: 'links' },
+      t.pr_url ? link(t.pr_url, t.pr_number ? `PR #${t.pr_number}` : 'PR', 'The pull request') : '',
+      link(t.url, 'Linear', 'The issue in Linear'),
+      t.agent ? el('a', { href: `/chat?agent=${encodeURIComponent(t.agent)}` }, `Chat with ${t.agent}`) : ''));
+  node.dataset.key = t.key;
+  return node;
+}
+
+function backlogCard(t) {
+  const pick = el('select', {}, ...data.agents.map((a) => el('option', { value: a }, a)));
+  pick.setAttribute('aria-label', `Agent for ${t.key}`);
+  const start = button('Start', async (b) => {
+    b.disabled = true;
+    try {
+      await api('/api/ticket/start', { key: t.key, agent: pick.value });
+      note('');
+      shown = '';
+      await load();
+    } catch (error) { note(error.message); } finally { b.disabled = false; }
+  }, 'Send the ticket to the agent in a memo. The ticket goes to Queued.');
+  const node = el('article', { className: 'memo ticket' },
+    el('div', { className: 'head' },
+      safe(t.url) ? el('a', { className: 'key', href: safe(t.url), target: '_blank', rel: 'noopener noreferrer', title: 'Open in Linear' }, t.key) : el('span', { className: 'key' }, t.key),
+      t.linear_state ? el('span', { className: 'lstate', title: 'The state in Linear (read only)' }, t.linear_state) : ''),
+    el('div', { className: 'title' }, t.title),
+    data.agents.length ? el('div', { className: 'start' }, pick, start) : '');
+  node.dataset.key = t.key;
+  return node;
+}
+
+function render() {
+  if (!data) return;
+  const groups = [...data.groups.map((g) => ({ key: g.state, label: g.label, tickets: g.tickets })), { key: 'backlog', label: 'Backlog', tickets: data.backlog }];
+  if (filter && !groups.some((g) => g.key === filter && g.tickets.length)) filter = '';
+  counts.replaceChildren(...groups.filter((g) => g.tickets.length).map((g) => {
+    const b = button(`${g.label} ${g.tickets.length}`, () => setFilter(g.key), filter === g.key ? 'Show all groups' : `Show only ${g.label}`);
+    b.setAttribute('aria-pressed', String(filter === g.key));
+    if (g.key === 'needs_you') b.classList.add('hot');
+    return b;
+  }));
+  const sections = groups.filter((g) => g.tickets.length && (!filter || g.key === filter)).map((g) => {
+    const list = g.key === 'backlog' ? g.tickets.map(backlogCard) : g.tickets.map((t) => card(t, g.key));
+    const count = el('span', { className: 'n' }, String(g.tickets.length));
+    // Done is closed unless its chip is on.
+    if (g.key === 'done') return el('section', { className: 'group' }, el('details', { open: filter === 'done' }, el('summary', {}, 'Done, last 7 days ', count), ...list));
+    const title = g.key === 'backlog' ? 'Backlog: no agent yet' : g.label;
+    return el('section', { className: 'group' }, el('h2', {}, title, count), ...list);
+  });
+  board.replaceChildren(...(sections.length ? sections : [el('p', { className: 'dim' }, 'The Desk has no tickets. An agent adds one with memo ticket set, and the Linear sync brings your Linear issues.')]));
+  loadImages(board);
+  const s = data.sync;
+  syncLine.replaceChildren(s.on
+    ? `Linear sync (read only): ${s.last ? `${s.ok ? `${s.count} issues` : `failed: ${s.error}`}, ${age(s.last)}` : 'not run yet'}.`
+    : 'The Linear sync is off. To switch it on, put LINEAR_API_KEY in .env and start the server again.');
+  if (s.on) syncLine.append(button('Sync now', async (b) => {
+    b.disabled = true;
+    try { await api('/api/ticket/sync', {}); shown = ''; await load(); } catch (error) { note(error.message); } finally { b.disabled = false; }
+  }, 'Read the Linear issues now'));
+}
+
+async function load() {
+  // A new board replaces the reply fields, so the page does not change while the owner types.
+  if (board.contains(document.activeElement) && document.activeElement.matches('textarea, select')) return;
+  try {
+    const next = await api('/api/tickets');
+    note('');
+    // The minute is part of the text, so the ages stay current.
+    const text = JSON.stringify(next) + filter + Math.floor(Date.now() / 60000);
+    if (text === shown) return;
+    shown = text;
+    data = next;
+    render();
+  } catch (error) { note(error.message); }
+}
+
+tokenForm(load);
+load();
+setInterval(load, 10000);
+</script>
+</body>
+</html>

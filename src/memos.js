@@ -25,6 +25,16 @@ const MAX_CHOICE = 24;
 const MAX_CHOICES = 6;
 export const POSTPONE_HOUR = 9;
 
+// A ticket key is the Linear identifier of an issue: the team key, "-", and the number, for example TFP-797.
+const TICKET_KEY = /^[A-Z][A-Z0-9]{0,9}-[1-9][0-9]{0,6}$/;
+// Gives the key in capitals, or a 400 error. Empty or missing: null.
+export function checkTicketKey(v, field = 'ticket') {
+  if (v === undefined || v === null || v === '') return null;
+  const key = typeof v === 'string' ? v.trim().toUpperCase() : v;
+  if (typeof key !== 'string' || !TICKET_KEY.test(key)) throw new MemoError(400, `${field} must be a ticket key such as TFP-797.`);
+  return key;
+}
+
 // The time (ISO, UTC) of 9:00 on the date YYYY-MM-DD in the time zone. A postponed memo comes back then.
 export function returnTime(date, timeZone) {
   const [y, m, d] = date.split('-').map(Number);
@@ -46,7 +56,8 @@ export function returnTime(date, timeZone) {
 // forwardTo: the names that memo forward can send to (the long agents).
 // owner: the name of the person who owns the queue (MEMO_OWNER). It is one of the names.
 // timeZone: the zone of the owner. A postponed memo comes back at 9:00 there.
-export function createStore(db, { names, owner = 'owner', forwardTo = names.filter((n) => n !== owner && n !== 'discord'), now = () => new Date(), timeZone = 'America/New_York' }) {
+// ensureTicket: called with the key of a memo that names a ticket, so the Desk has a row for it (src/tickets.js).
+export function createStore(db, { names, owner = 'owner', forwardTo = names.filter((n) => n !== owner && n !== 'discord'), now = () => new Date(), timeZone = 'America/New_York', ensureTicket = () => {} }) {
   const ts = () => now().toISOString();
   const plain = (row) => (row ? { ...row } : row);
   const events = createEvents(db, now);
@@ -146,7 +157,7 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     ).all(sender).map(plain);
   }
 
-  function send({ from, to, text, impact, effort, due, trusted, tags, title, next, choices } = {}) {
+  function send({ from, to, text, impact, effort, due, trusted, tags, title, next, choices, ticket } = {}) {
     checkParty('from', from, names);
     checkParty('to', to, names.filter((n) => n !== 'discord'));
     const body = checkText('text', text);
@@ -167,10 +178,12 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     const step = checkLine('next', next, MAX_NEXT);
     const ask = checkChoices(choices);
     if (ask.length && to !== owner) throw new MemoError(400, `Only a memo to ${owner} can have choices.`);
+    const key = checkTicketKey(ticket);
+    if (key) ensureTicket(key);
     const r = db.prepare(
       // seen is 0 here and not from the column default: an older database has the default 1 for its old memos.
-      'INSERT INTO memos (sender, recipient, text, impact, effort, due, trusted, created, seen, tags, title, next, choices) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)',
-    ).run(from, to, body, impact, effort, d, trusted ? 1 : 0, ts(), t.join(','), name, step, ask.join(','));
+      'INSERT INTO memos (sender, recipient, text, impact, effort, due, trusted, created, seen, tags, title, next, choices, ticket) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)',
+    ).run(from, to, body, impact, effort, d, trusted ? 1 : 0, ts(), t.join(','), name, step, ask.join(','), key);
     const id = Number(r.lastInsertRowid);
     log(from, id, 'send', `to ${to}: ${name || body}`);
     return { memo: get(id), corrections: to === owner ? corrections(from) : [] };
