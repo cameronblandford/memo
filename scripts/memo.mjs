@@ -16,7 +16,7 @@ const USAGE = `Usage:
   memo close <id> [<text>]
   memo edit <id> [--] <new text>
   memo brief <id> [--title <name>] [--next <step>]
-  memo note <id> --from <name> [--] <text>      (a turn in the thread; on a memo that waits for you, it is your answer)
+  memo note <id> --from <name> [--text <new memo text>] [--] <text>      (a turn in the thread; on a memo that waits for you, it is your answer)
   memo ack <id> [<id> ...]
   memo rule --from <agent> --rule '<permission rule>' --why '<one line>' [--impact 1-5] [--to <owner>]
   memo forward <id> [--to <agent>]
@@ -34,7 +34,8 @@ const USAGE = `Usage:
   memo ticket set <KEY> [--agent <name>] [--state queued|working|needs_you|in_review|landing|done] [--pr <url>] [--summary <one line>] [--title <title>] [--url <Linear url>] [--as <name>]
   memo ticket list
 A memo to the owner needs --impact and --effort (memo rule has impact 4 and effort micro). --title and --next are the brief on the card of the Inbox.
---choices gives the owner one answer button for each word (for example push,draft,skip); a tap replies with that word.`;
+--choices gives the owner one answer button for each word (for example push,draft,skip); a tap replies with that word.
+memo note --text changes the memo text and adds the note in one step: the memo text is the current state, and the note is the short answer.`;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 function fileEnv() {
@@ -82,7 +83,7 @@ async function call(path, body, { soft = false } = {}) {
   return data;
 }
 
-const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by', 'tag', 'title', 'next', 'choices', 'rule', 'why', 'ticket', 'agent', 'state', 'pr', 'summary', 'url'];
+const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by', 'tag', 'title', 'next', 'choices', 'rule', 'why', 'ticket', 'agent', 'state', 'pr', 'summary', 'url', 'text'];
 // An option that can come more than one time. Its value is a list.
 const REPEATED = ['tag'];
 function parse(argv) {
@@ -230,11 +231,12 @@ const commands = {
     console.log(`Memo ${id} has the brief: ${m.title || '(no title)'} · next: ${m.next || '(no next step)'}.`);
   },
   // A turn in the thread of a memo to the owner. From the sender of a memo that waits for it: the answer, and the
-  // memo goes back to the Inbox of the owner.
+  // memo goes back to the Inbox of the owner. --text: the new memo text (the current state), in the same request.
   async note() {
     const id = memoId(rest[0]);
-    const m = await call('/api/note', { id, from: need('from'), text: rest.slice(1).join(' ') });
-    console.log(m.state === 'waiting' ? `Memo ${id} has the note. It waits for ${m.sender}.` : `Memo ${id} has the note. It is in the Inbox of ${m.recipient} again.`);
+    const m = await call('/api/note', { id, from: need('from'), text: rest.slice(1).join(' '), memo_text: flags.text });
+    const what = flags.text === undefined ? 'the note' : 'the new text and the note';
+    console.log(m.state === 'waiting' ? `Memo ${id} has ${what}. It waits for ${m.sender}.` : `Memo ${id} has ${what}. It is in the Inbox of ${m.recipient} again.`);
   },
   async close() {
     const id = memoId(rest[0]);
@@ -402,7 +404,7 @@ const commands = {
           if (of('noted').length) {
             console.log(`Memos from ${who} that wait for your answer. The owner sent each one back with a new note. The full thread is in order, oldest first:\n\n${of('noted').map((d) => d.text).join('\n')}`);
             console.log(`Do what the new note asks. Then answer in the same memo: memo note <id> --from ${who} -- "<text>". The memo then goes back to the owner. Do not send a new memo for the answer.`);
-            console.log(`To change the memo text, use memo edit <id> -- "<new text>". It also sends the memo back. memo wait gives each note one time; memo list --to ${who} shows the memos that still wait for your answer.\n`);
+            console.log(`To change the memo text with the answer, add --text "<new memo text>" to memo note: the memo text is then the current state. memo edit <id> -- "<new text>" changes only the text, and it also sends the memo back. memo wait gives each note one time; memo list --to ${who} shows the memos that still wait for your answer.\n`);
           }
           if (of('fresh').length) console.log(`New memos to ${who}:\n\n${of('fresh').map((d) => d.text).join('\n')}`);
           const left = items.length - done.length;

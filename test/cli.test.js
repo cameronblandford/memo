@@ -13,7 +13,10 @@ const CLI = join(ROOT, 'scripts', 'memo.mjs');
 // The server runs in this process, so the client must run without a block of the event loop (no execFileSync).
 async function withServer(fn, options) {
   const made = makeApp(options);
-  const server = await new Promise((done) => { const s = serve({ fetch: made.app.fetch, hostname: '127.0.0.1', port: 0 }, () => done(s)); });
+  // requests: the method and path of each request that the server got, for a test that counts them.
+  const requests = [];
+  const fetch = (req, ...rest) => { requests.push(`${req.method} ${new URL(req.url).pathname}`); return made.app.fetch(req, ...rest); };
+  const server = await new Promise((done) => { const s = serve({ fetch, hostname: '127.0.0.1', port: 0 }, () => done(s)); });
   const url = `http://127.0.0.1:${server.address().port}`;
   const memo = async (args, env = {}) => {
     try {
@@ -23,7 +26,7 @@ async function withServer(fn, options) {
       return { code: e.code, stdout: e.stdout, stderr: e.stderr };
     }
   };
-  try { await fn({ ...made, memo, url }); } finally { server.close(); }
+  try { await fn({ ...made, memo, url, requests }); } finally { server.close(); }
 }
 
 test('send, list, reply, and ack through the client', () => withServer(async ({ memo, store }) => {
@@ -337,4 +340,23 @@ test('list, then the answer, then wait: a turn that has an answer never comes ag
   const r = await memo(['wait', '--as', 'main', '0.01']);
   assert.equal(r.code, 2, r.stdout);
   assert.doesNotMatch(r.stdout, /wait for your answer/);
+}));
+
+test('note --text changes the memo text and adds the note in one request; the memo comes back one time', () => withServer(async ({ memo, store, requests }) => {
+  store.send({ from: 'main', to: 'cam', text: 'Approve the plan?', impact: 3, effort: 'micro' });
+  store.seen([1]);
+  store.note(1, 'cam', 'What does it cost?');
+  store.news('main');
+  requests.length = 0;
+  const r = await memo(['note', '1', '--from', 'main', '--text', 'Approve the plan? It costs $14 each month.', '--', 'The price is in the text.']);
+  assert.match(r.stdout, /Memo 1 has the new text and the note\. It is in the Inbox of cam again\./);
+  assert.deepEqual(requests, ['POST /api/note']);
+  const m = store.get(1);
+  assert.deepEqual([m.text, m.state, m.seen, m.notes.at(-1).text], ['Approve the plan? It costs $14 each month.', 'open', 2, 'The price is in the text.']);
+  // Another agent cannot set the text of a memo that it did not send.
+  store.note(1, 'cam', 'Thanks.');
+  assert.match((await memo(['note', '1', '--from', 'liaison', '--text', 'New', '--', 'x'], { MEMO_TOKEN: LIAISON_TOKEN })).stderr, /This token cannot do that/);
+  assert.match((await memo(['note', '1', '--from', 'cam', '--text', 'New', '--', 'x'])).stderr, /Only main can change the text/);
+  assert.equal(store.get(1).text, 'Approve the plan? It costs $14 each month.');
+  assert.match((await memo([])).stderr, /memo note <id> --from <name> \[--text <new memo text>\]/);
 }));

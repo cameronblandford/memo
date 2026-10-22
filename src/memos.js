@@ -244,12 +244,31 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
   //   the Inbox as "updated". A note of the sender on an open memo also shows as "updated".
   // A new note marks the notes of the other party as read: for the owner (the Inbox shows all notes) all of them;
   // for the sender only the notes of the owner that memo wait or memo list gave to the sender.
-  function note(id, from, text) {
+  // memoText (optional, only for the sender): the new memo text, the current state of the work. The text and the note
+  // change in one step: the two change, or nothing changes. The memo goes back to the owner one time.
+  function note(id, from, text, { memoText } = {}) {
     const c = getActive(id);
     if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} can have notes.`);
     if (from !== owner && from !== c.sender) throw new MemoError(403, `Only ${owner} and ${c.sender} can add a note to memo ${c.id}.`);
     const body = checkText('text', text);
     if (body.length > MAX_NOTE) throw new MemoError(400, `A note must have ${MAX_NOTE} characters or fewer.`);
+    const newText = memoText === undefined || memoText === null ? null : checkText('memo text', memoText);
+    if (newText !== null && from !== c.sender) throw new MemoError(403, `Only ${c.sender} can change the text of memo ${c.id}.`);
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      addNote(c, from, body, newText);
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+    return get(c.id);
+  }
+  function addNote(c, from, body, newText) {
+    if (newText !== null) {
+      db.prepare('UPDATE memos SET text = ? WHERE id = ?').run(newText, c.id);
+      log(from, c.id, 'edit', newText);
+    }
     db.prepare('INSERT INTO notes (memo_id, author, text, created) VALUES (?, ?, ?, ?)').run(c.id, from, body, ts());
     if (from === owner) {
       db.prepare('UPDATE notes SET read = 1 WHERE memo_id = ? AND author != ?').run(c.id, from);
@@ -261,7 +280,6 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
       db.prepare("UPDATE memos SET state = 'open', seen = CASE seen WHEN 1 THEN 2 ELSE seen END WHERE id = ?").run(c.id);
     }
     log(from, c.id, 'note', body);
-    return get(c.id);
   }
   const unreadFromOwner = (id) => db.prepare('SELECT COUNT(*) AS n FROM notes WHERE memo_id = ? AND author = ? AND read = 0').get(id, owner).n;
   // True if the memo has a note of the owner that is not read and that memo wait or memo list did not give to the

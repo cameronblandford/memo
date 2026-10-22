@@ -142,10 +142,13 @@ export function createApp({ store, agents, images, ticks, tickets, linear, ticks
     return c.json(store.brief(b.id, { title: b.title, next: b.next }));
   });
   // A turn in the thread of a memo. The liaison can answer only in a memo that it sent.
+  // memo_text (optional): the new text of the memo, with the note in one step (memo note --text). The field text is
+  // the note. Only the sender of the memo can give memo_text (the store checks it), so the liaison token can change
+  // only the text of a memo that the liaison sent.
   app.post('/api/note', async (c) => {
     const b = await body(c);
     only(c, b.from === LIAISON && store.get(b.id).sender === LIAISON);
-    return c.json(store.note(b.id, b.from, b.text));
+    return c.json(store.note(b.id, b.from, b.text, { memoText: b.memo_text }));
   });
   app.post('/api/seen', async (c) => {
     const b = await body(c);
