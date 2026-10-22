@@ -16,6 +16,7 @@ const UI = {
   'attach.js': 'text/javascript; charset=utf-8',
   'feedback.js': 'text/javascript; charset=utf-8',
   'working.js': 'text/javascript; charset=utf-8',
+  'chat.js': 'text/javascript; charset=utf-8',
   'lightbox.js': 'text/javascript; charset=utf-8',
   'rule.js': 'text/javascript; charset=utf-8',
   'common.css': 'text/css; charset=utf-8',
@@ -61,6 +62,7 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
   app.get('/inbox', page('inbox.html'));
   app.get('/agents', page('agents.html'));
   app.get('/log', page('log.html'));
+  app.get('/chat', page('chat.html'));
   app.get('/ui/:file', (c) => {
     const file = c.req.param('file');
     if (!Object.hasOwn(UI, file)) return c.notFound();
@@ -250,6 +252,17 @@ export function createApp({ store, agents, images, ticks, ticksOn = false, root,
     only(c, false);
     const q = (k) => c.req.query(k);
     return c.json(agents.output(q('name'), { file: q('file'), cursor: q('cursor') }));
+  });
+  // The Chat page: the memos between the owner and one agent with a session (not a short agent), and the status
+  // lines of these agents. With no agent, the default agent (the agent of memo forward). Only the full token and the
+  // owner can read it: the liaison token cannot.
+  app.get('/api/thread', (c) => {
+    only(c, false);
+    const name = c.req.query('agent') || agents.defaultAgent();
+    const known = agents.work();
+    if (!known.some((a) => a.name === name)) throw new MemoError(400, `agent must be one of: ${known.map((a) => a.name).join(', ')}.`);
+    const limit = c.req.query('limit') === undefined ? undefined : Number(c.req.query('limit'));
+    return c.json({ agent: name, ...store.thread(name, { limit }), agents: known });
   });
   // The Inbox: the open memos to the owner in their order, and the ticks of now with their places in that order.
   app.get('/api/queue', (c) => {

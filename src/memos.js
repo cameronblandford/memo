@@ -15,6 +15,8 @@ const MAX_NOTE = 4000;
 // The brief of a memo is one short line for each part, so the compact view of the Inbox fits a phone.
 const MAX_TITLE = 60;
 const MAX_NEXT = 100;
+// The Chat page shows this many memos at most.
+const MAX_THREAD = 500;
 
 // A tag is a short lowercase word, for example work, money, or home-repair. A memo has 8 tags or fewer.
 const TAG = /^[a-z][a-z0-9-]{0,23}$/;
@@ -390,6 +392,18 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
       .all(owner).map(withNotes);
   }
 
+  // The memos between the owner and one agent, in the two directions, for the Chat page: the newest `limit` memos,
+  // oldest first, with their notes. This is a read only: it records no delivery and no "seen".
+  // more: true if older memos exist.
+  function thread(agent, { limit = 50 } = {}) {
+    checkParty('agent', agent, names.filter((n) => n !== owner && n !== 'discord'));
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_THREAD) throw new MemoError(400, `limit must be a whole number from 1 to ${MAX_THREAD}.`);
+    const rows = db.prepare(
+      `SELECT * FROM memos WHERE (sender = ? AND recipient = ?) OR (sender = ? AND recipient = ?) ORDER BY id DESC LIMIT ?`,
+    ).all(owner, agent, agent, owner, limit + 1);
+    return { memos: rows.slice(0, limit).reverse().map(withNotes), more: rows.length > limit };
+  }
+
   // hold: the ids that memo wait does not show (memo wait --hold). Each answer records a delivery for the memos
   // that the wait shows, and the time of the request and the held ids for the Log page.
   // peek: a check that is not a read by the agent (the Discord watcher). It records no delivery and no poll.
@@ -462,5 +476,5 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
     };
   }
 
-  return { get, send, reply, close, edit, brief, note, compact, seen, check, adjust, ack, forward, tag, postpone, postponed, list, news, delivered, inflight, events, corrections, counts, timeZone };
+  return { get, send, reply, close, edit, brief, note, compact, seen, check, adjust, ack, forward, tag, postpone, postponed, list, thread, news, delivered, inflight, events, corrections, counts, timeZone };
 }

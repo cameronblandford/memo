@@ -189,6 +189,16 @@ Open `http://127.0.0.1:3280/log`. It shows what is on its way to each agent, and
 - "Events": the steps of the memos (send, delivered, seen, note, edit, brief, reply, close, ack, compact, postpone, forward) and the status lines, newest first. Filter by agent or by memo id; `/log?memo=42` shows one memo.
 - The server writes the events to the table `events`. The table is append-only. An event has the title or the first 80 characters of a text, never the full text.
 
+## The Chat page
+
+Open `http://127.0.0.1:3280/chat`. It shows the memos between the owner and one agent, in the two directions, as a chat: the oldest at the top, the newest at the bottom. The top line is the status line of the agent.
+
+- The field at the bottom sends a memo from the owner to the agent, as the field of the Inbox does. Return sends; Shift-Return adds a line. The agent gets the memo with `memo wait`.
+- Each memo shows its notes, and the reply or the close that ended it. Its number goes to the memo on the Log page. Answer an open memo of the agent in the Inbox.
+- The list has the agents with a session (`long` and `remote`), not the short agents. `/chat?agent=main` opens the chat with `main`. With no name, the page opens the last chat of the device, or the default agent.
+- The page shows the newest 50 memos. "Show older memos" shows 50 more, up to 500. The page loads again each 5 seconds.
+- The page reads `GET /api/thread?agent=<name>&limit=<n>`. The read records no delivery and no "seen". The liaison token cannot read it.
+
 ## An agent on a different computer
 
 A remote agent has its session on a different computer from the server. Use it when the server is always on (for example in the cloud) and some work needs a computer that is not always on.
