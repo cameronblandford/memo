@@ -38,7 +38,8 @@ test('agent.sh refuses a name that is not a long agent', async () => {
 });
 
 test('run-agent.sh gives the liaison only its two commands and the restricted token', async () => {
-  const r = await run(join(ROOT, 'scripts', 'run-agent.sh'), ['liaison'], { env: { ...process.env, MEMO_RUN_DRY: '1', DISCORD_CLI: '/opt/tools/discord-cli', MEMO_LIAISON_TOKEN_FOR_TEST: LIAISON_TOKEN } });
+  // The test does not read the real .env, and the calendar is off.
+  const r = await run(join(ROOT, 'scripts', 'run-agent.sh'), ['liaison'], { env: { ...process.env, MEMO_RUN_DRY: '1', DISCORD_CLI: '/opt/tools/discord-cli', MEMO_LIAISON_TOKEN_FOR_TEST: LIAISON_TOKEN, MEMO_ENV_FILE: '/nonexistent/.env', MEMO_CALENDAR_MCP_ID: '' } });
   assert.match(r.stdout, /--strict-mcp-config/);
   assert.match(r.stdout, /--setting-sources/);
   assert.ok(r.stdout.includes(`Bash(${join(ROOT, 'scripts', 'memo')}:*)`));
@@ -53,7 +54,7 @@ test('run-agent.sh gives the liaison only its two commands and the restricted to
 });
 
 test('run-agent.sh gives the liaison only the five read tools of the calendar', async () => {
-  const env = { ...process.env, MEMO_RUN_DRY: '1', DISCORD_CLI: '/opt/tools/discord-cli', MEMO_CALENDAR_MCP_ID: 'mcpsrv_01Test' };
+  const env = { ...process.env, MEMO_RUN_DRY: '1', DISCORD_CLI: '/opt/tools/discord-cli', MEMO_ENV_FILE: '/nonexistent/.env', MEMO_CALENDAR_MCP_ID: 'mcpsrv_01Test' };
   const r = await run(join(ROOT, 'scripts', 'run-agent.sh'), ['liaison'], { env });
   const cal = 'mcp__claude_ai_Google_Calendar__';
   const [allowed, denied] = r.stdout.split('\n')[0].split('--disallowedTools');
