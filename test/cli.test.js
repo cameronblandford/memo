@@ -359,4 +359,12 @@ test('note --text changes the memo text and adds the note in one request; the me
   assert.match((await memo(['note', '1', '--from', 'cam', '--text', 'New', '--', 'x'])).stderr, /Only main can change the text/);
   assert.equal(store.get(1).text, 'Approve the plan? It costs $14 each month.');
   assert.match((await memo([])).stderr, /memo note <id> --from <name> \[--text <new memo text>\]/);
+  // --text is only for memo note: with another command it would take a word of the text.
+  for (const args of [['edit', '1', '--text', 'New'], ['send', '--from', 'main', '--to', 'cam', '--text', 'x', 'y'], ['close', '1', '--text', 'x']]) {
+    const r = await memo(args);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /--text is only for memo note/);
+  }
+  assert.equal(store.get(1).text, 'Approve the plan? It costs $14 each month.');
+  assert.equal(store.get(1).state, 'waiting');
 }));

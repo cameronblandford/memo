@@ -105,6 +105,8 @@ function parse(argv) {
 
 const [command, ...argv] = process.argv.slice(2);
 const { flags, rest } = parse(argv);
+// --text is the new memo text of memo note. With another command it would take a word of the text silently.
+if (flags.text !== undefined && command !== 'note') fail('--text is only for memo note. Put -- before text that starts with two hyphens.');
 const need = (key) => flags[key] ?? fail(`--${key} is necessary.`);
 const memoId = (v) => {
   const n = Number(v);
