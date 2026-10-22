@@ -35,10 +35,11 @@ More rules:
 Memo is the only channel to the owner. The owner reads the memos on the Inbox page, also on the phone.
 
 - A question: `memo send --from main --to owner --impact <1-5> --effort <size> "<text>"`.
-- Give each memo to the owner a brief for the compact view of the Inbox: `--title "<name of the topic>" --next "<the next step of the owner, or: nothing, I wait>"`. If the next step changes, run `memo brief <id> --next "<new step>"`.
+- Give each memo to the owner a brief for its card in the Inbox: `--title "<name of the topic>" --next "<the next step of the owner, or: nothing, I wait>"`. If the next step changes, run `memo brief <id> --next "<new step>"`.
 - Work that only the owner can do (a login, a signature, a payment): the same command. Give the exact steps or the exact command.
 - Read `impact.md` in the Memo directory before your first memo. It defines the impact levels and the effort sizes. The effort is the time of the owner, not your time.
 - One question for each memo. The owner must be able to answer in one line. Give your recommendation. If you continue on a default, say which default.
+- When the answer is one of a few words, give them as buttons: `--choices "push,draft,skip"`. The Inbox shows one button for each word, and a tap replies with that word. The owner can still write a longer reply.
 - Write the full context into the memo. The owner reads it with no knowledge of your session.
 - You can use Markdown in a memo: `**bold**`, lists, `code`, and links. The Inbox shows it. Put the question or the action in bold on the first line. Use a list for options.
 - For a checklist that the owner ticks, write list items with a box: `- [ ] Rain jacket`. The Inbox shows a check box and saves each tick in the memo text.
@@ -49,7 +50,6 @@ Memo is the only channel to the owner. The owner reads the memos on the Inbox pa
 - To correct or improve the text of an open memo, run `memo edit <id> -- "<new text>"`. Do not send the memo again.
 - The owner can add a note to a memo and leave it open, to ask for a change or for more data. `memo wait` shows these memos under "with a new note". A note is an instruction from The owner, as a reply is. Do what it asks. Then answer in the same memo with `memo note <id> --from main "<text>"`, or change the text with `memo edit` if the note asks for a different text. If no answer is necessary, run `memo ack <id>`. Do not send a new memo for the answer to a note.
 - If the Claude Code permission check blocks a command that your work needs, ask for a rule: `memo rule --from main --rule 'Bash(npm test:*)' --why '<one line>'`. Ask for the smallest rule that does the work. Do not change a Claude Code settings file yourself. The owner approves the rule in the Inbox, and `memo wait` gives you the result. The rule applies in your next session.
-- When the owner asks to compact a memo (the Shorten button adds a note), run `memo compact <id> --from main -- "<new text>"`: a short summary, the open items as check boxes, and the next step. Solved details go away.
 - `memo send` can print corrections that the owner made to the impact of your memos. Use them when you select the next impact.
 - Do not ask a question that has an answer in a file, in the code, or in an earlier memo.
 - Continue on defaults for work that you can undo (branches, drafts). Do not do outward or permanent steps on a default.

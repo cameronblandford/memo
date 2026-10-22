@@ -13,7 +13,7 @@ header a { margin-left: auto; color: var(--dim); font-size: .9rem; }
 header a + a { margin-left: 0; }
 /* The filter of the top bar. It has the accent color when it hides memos. */
 #filter { margin-left: auto; }
-#filter + a, #compact + a, #view + a { margin-left: 0; }
+#filter + a, #view + a { margin-left: 0; }
 /* The filter and the order of the Inbox are pills. The filter has the accent color when it hides memos; the order has it when it is not Rank.
    The right padding keeps the text clear of the arrow. */
 #filter, #sort { max-width: 10rem; padding: .15rem 1.6rem .15rem .6rem; border-radius: 1rem; color: var(--dim); font-size: .85rem;
@@ -21,20 +21,16 @@ header a + a { margin-left: 0; }
 /* The arrow of the active pill is in the panel color, so it shows on the accent. */
 #filter.on, #sort.on { background-color: var(--accent); border-color: var(--accent); color: var(--panel);
   background-image: linear-gradient(45deg, transparent 50%, var(--panel) 50%, var(--panel) 62%, transparent 62%), linear-gradient(-45deg, transparent 50%, var(--panel) 50%, var(--panel) 62%, transparent 62%); }
-/* On a phone the top bar of the Inbox has two lines: the name and the links, then the filter, the order, and Collapse. */
+/* On a phone the top bar of the Inbox has two lines: the name and the links, then the filter, the order, and the view switch. */
 @media (max-width: 40rem) {
   header:has(#sort) { flex-wrap: wrap; row-gap: .5rem; align-items: center; }
   header:has(#sort) #count { white-space: nowrap; }
   header:has(#sort)::after { content: ''; order: 1; flex-basis: 100%; height: 0; }
   header:has(#sort) #filter { order: 2; margin-left: 0; }
   header:has(#sort) #sort { order: 3; }
-  header:has(#sort) #compact { order: 4; }
   header:has(#sort) #view { order: 5; }
   header:has(#sort) a:first-of-type { margin-left: auto; }
 }
-/* The Compact button of the top bar. It has the accent color when the compact view is on. */
-#compact { padding: .15rem .6rem; border-radius: 1rem; color: var(--dim); font-size: .85rem; }
-#compact.on { background: var(--accent); border-color: var(--accent); color: var(--panel); }
 /* The view switch of the top bar: List or One card. The chosen view has the accent color. */
 #view { display: inline-flex; flex: none; border: 1px solid var(--line); border-radius: 1rem; overflow: hidden; }
 #view button { padding: .15rem .6rem; border: 0; border-radius: 0; color: var(--dim); font-size: .85rem; }
@@ -80,12 +76,27 @@ header a + a { margin-left: 0; }
   .memo.card, .deck-bar i { transition: none; }
   .memo.card.enter-next, .memo.card.enter-prev { animation: none; }
 }
-/* A memo in the compact view: the name and the next step. */
-.memo.brief { cursor: pointer; padding: .6rem 1rem; }
-.memo.brief:hover { border-color: var(--accent); }
-.memo.brief .name { font-weight: 600; margin-top: .15rem; }
-.memo.brief .next { color: var(--dim); font-size: .95rem; margin-top: .1rem; }
-.memo.brief .next b { color: var(--accent); font-weight: 600; }
+/* The card of a memo in the list: the name, the next step, the answer buttons, and the full text under Details. */
+.memo .name { margin-top: .15rem; font-size: 1.05rem; font-weight: 600; overflow-wrap: anywhere; }
+.memo .next { margin-top: .1rem; overflow-wrap: anywhere; }
+.memo .next b { color: var(--accent); font-weight: 600; }
+.choices { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0; }
+.choices button { min-height: 2.6rem; padding: .4rem 1rem; border-color: var(--accent); color: var(--accent); font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+.choices button:hover { background: var(--accent); color: var(--panel); }
+.memo.card .choices button { flex: 1 1 6rem; }
+details.details { margin: .4rem 0; }
+details.details summary { padding: .3rem 0; }
+details.details[open] summary { margin-bottom: .2rem; }
+/* The fold under the list: the memos with no change for 5 days, and Close all with its question. */
+.fold { margin-top: 1rem; }
+.fold-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .75rem; }
+.fold-toggle { color: var(--dim); font-size: .9rem; }
+.fold-toggle::before { content: '▸ '; }
+.fold-toggle[aria-expanded="true"]::before { content: '▾ '; }
+.fold-close { margin-left: auto; color: var(--dim); font-size: .85rem; }
+.fold-ask { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; flex-basis: 100%; padding: .5rem .65rem; border: 1px solid var(--warn); border-radius: .5rem; font-size: .9rem; }
+.fold-ask span { flex: 1 1 12rem; color: var(--warn); }
+.fold-ask button:first-of-type { border-color: var(--warn); color: var(--warn); font-weight: 600; }
 .memo { scroll-margin: .75rem 0; }
 #count, .dim, footer { color: var(--dim); font-size: .9rem; }
 #note { margin: 0 0 1rem; padding: .5rem .75rem; border: 1px solid var(--warn); border-radius: .5rem; color: var(--warn); }

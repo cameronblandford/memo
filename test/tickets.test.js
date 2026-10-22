@@ -145,10 +145,11 @@ test('a memo with a ticket that the Desk does not have adds a row with the key a
   assert.throws(() => store.send({ from: 'main', to: 'mac', text: 'x', ticket: 'bad' }), /ticket key/);
 });
 
-test('compact keeps the ticket of the memo', () => {
+test('a memo to the owner keeps its ticket and its answer buttons together', () => {
   const { store } = make();
-  const { memo } = store.send({ from: 'main', to: 'cam', text: 'Long text.', impact: 3, effort: 'micro', ticket: 'TFP-30' });
-  assert.equal(store.compact(memo.id, 'main', { text: 'Short.' }).memo.ticket, 'TFP-30');
+  const { memo } = store.send({ from: 'main', to: 'cam', text: 'Push?', impact: 3, effort: 'micro', ticket: 'TFP-30', choices: 'push,skip' });
+  assert.equal(memo.ticket, 'TFP-30');
+  assert.deepEqual(memo.choices, ['push', 'skip']);
 });
 
 test('the Linear sync changes only the Linear part, and the Backlog has the open synced tickets with no agent', () => {

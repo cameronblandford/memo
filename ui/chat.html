@@ -58,7 +58,6 @@ import { enterSends, fieldHeight } from '/ui/keys.js';
 import { withFeedback } from '/ui/feedback.js';
 import { workState } from '/ui/working.js';
 import { parseRule, withoutMarker } from '/ui/rule.js';
-import { shownNotes } from '/ui/filter.js';
 import { createLoads } from '/ui/chat.js';
 
 const OWNER = '__OWNER__';
@@ -100,7 +99,7 @@ function answer(memo) {
 
 function bubble(memo) {
   const mine = memo.sender === OWNER;
-  const notes = shownNotes(memo);
+  const notes = memo.notes || [];
   // The number goes to the history of the memo on the Log page. An open memo to the owner also has a link to the Inbox.
   const links = [el('a', { href: `/log?memo=${memo.id}`, title: 'The history of this memo on the Log page' }, `#${memo.id}`)];
   if (memo.recipient === OWNER && memo.state === 'open') links.unshift(el('a', { href: '/inbox', title: 'Answer this memo in the Inbox' }, 'Inbox'));

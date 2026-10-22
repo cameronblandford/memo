@@ -232,17 +232,15 @@ test('send and brief set the title and the next step of a memo', () => withServe
   assert.match((await memo(['brief', '1', 'loose text'])).stderr, /--title and --next/);
 }));
 
-test('compact closes the memo and prints the new id', () => withServer(async ({ memo, store }) => {
-  await memo(['send', '--from', 'main', '--to', 'cam', '--impact', '4', '--effort', 'micro', '--tag', 'work', 'A', 'long', 'memo.']);
-  const r = await memo(['compact', '1', '--from', 'main', '--title', 'Short', '--', '- [ ] Approve', 'the deploy']);
-  assert.equal(r.code, 0);
-  assert.match(r.stdout, /Memo 1 is compacted into memo 2\./);
-  assert.equal(store.get(2).text, '- [ ] Approve the deploy');
-  assert.equal(store.get(2).title, 'Short');
-  assert.deepEqual(store.get(2).tags, ['work']);
-  assert.equal(store.get(1).state, 'closed');
-  assert.match((await memo(['compact', '2', 'x'])).stderr, /--from is necessary/);
-  assert.match((await memo([])).stderr, /memo compact <id> --from <name>/);
+test('send --choices gives the owner answer buttons, and list and wait show them', () => withServer(async ({ memo, store }) => {
+  const r = await memo(['send', '--from', 'main', '--to', 'cam', '--impact', '3', '--effort', 'micro', '--choices', 'push, draft,skip', 'Push the branch?']);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(store.get(1).choices, ['push', 'draft', 'skip']);
+  assert.match((await memo(['list', '--to', 'cam'])).stdout, /choices push \| draft \| skip/);
+  assert.match((await memo(['send', '--from', 'main', '--to', 'cam', '--impact', '3', '--effort', 'micro', '--choices', 'a,b,c,d,e,f,g', 'x'])).stderr, /6 choices or fewer/);
+  assert.match((await memo([])).stderr, /--choices <a>,<b>/);
+  assert.doesNotMatch((await memo([])).stderr, /memo compact/, 'memo compact is gone');
+  assert.match((await memo(['compact', '1', '--from', 'main', 'x'])).stderr, /Usage/);
 }));
 
 test('memo rule sends a memo to the owner with the rule in a code block and the marker last', () => withServer(async ({ memo, store }) => {

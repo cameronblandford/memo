@@ -68,12 +68,10 @@ test('in flight shows the answers that the agent did not ack and the notes that 
   assert.equal(s.inflight().some((a) => a.name === 'cam' || a.name === 'discord'), false);
 });
 
-test('compact, forward, and postpone are events', () => {
+test('forward and postpone are events', () => {
   const { s } = makeStore();
   s.send(toCam);
-  s.compact(1, 'main', { text: 'Short.' });
-  assert.deepEqual(kinds(s, 1), ['main send', 'main compact']);
-  assert.equal(s.events.list({ memo: 1 })[0].detail, 'into #2');
+  s.send(toCam);
   s.postpone(2, '2026-10-20');
   assert.deepEqual(kinds(s, 2), ['main send', 'cam postpone']);
   s.send({ from: 'discord', to: 'liaison', text: 'Hi', trusted: true });

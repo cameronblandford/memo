@@ -82,7 +82,7 @@ export function openDb(path = ':memory:') {
       at TEXT NOT NULL,
       actor TEXT NOT NULL,                  -- the name that did the step
       memo_id INTEGER,                      -- NULL for a step with no memo, for example a status line
-      kind TEXT NOT NULL,                   -- send, delivered, seen, ack, note, reply, close, edit, brief, compact, ...
+      kind TEXT NOT NULL,                   -- send, delivered, seen, ack, note, reply, close, edit, brief, postpone, ...
       detail TEXT NOT NULL DEFAULT ''       -- a title or the first 80 characters, never the full text
     );
     CREATE INDEX IF NOT EXISTS events_memo ON events (memo_id);
@@ -105,11 +105,14 @@ export function openDb(path = ':memory:') {
   if (!memoColumns.includes('tags')) db.exec("ALTER TABLE memos ADD COLUMN tags TEXT NOT NULL DEFAULT ''");
   if (!memoColumns.includes('until')) db.exec('ALTER TABLE memos ADD COLUMN until TEXT');
   if (!memoColumns.includes('back')) db.exec('ALTER TABLE memos ADD COLUMN back TEXT');
-  // The brief of a memo for the compact view of the Inbox, written by the sender. NULL: no brief.
+  // The brief of a memo for its card in the Inbox, written by the sender. NULL: no brief.
   //   title: a name for the memo, for example "Driver license address"
   //   next:  the next step of the owner, for example "Mail form MV-232"
   if (!memoColumns.includes('title')) db.exec('ALTER TABLE memos ADD COLUMN title TEXT');
   if (!memoColumns.includes('next')) db.exec('ALTER TABLE memos ADD COLUMN next TEXT');
+  // The answer buttons of a memo to the owner, written by the sender: 'push,draft,skip' (empty: no buttons).
+  // A tap on a button replies with that word. The old memos get no buttons.
+  if (!memoColumns.includes('choices')) db.exec("ALTER TABLE memos ADD COLUMN choices TEXT NOT NULL DEFAULT ''");
   // The Desk (src/tickets.js): the ticket key of a memo, for example TFP-797. NULL: the memo has no ticket.
   if (!memoColumns.includes('ticket')) db.exec('ALTER TABLE memos ADD COLUMN ticket TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS memos_ticket ON memos (ticket) WHERE ticket IS NOT NULL');

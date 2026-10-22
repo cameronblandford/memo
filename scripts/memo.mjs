@@ -8,7 +8,7 @@ import { summary } from '../ui/markdown.js';
 import { ruleProblem, ruleText } from '../ui/rule.js';
 
 const USAGE = `Usage:
-  memo send --from <name> --to <name> [--impact 1-5 --effort micro|short|hour|half-day|day] [--due YYYY-MM-DD] [--tag <tag> ...] [--title <name>] [--next <step>] [--ticket <KEY>] [--] <text>
+  memo send --from <name> --to <name> [--impact 1-5 --effort micro|short|hour|half-day|day] [--due YYYY-MM-DD] [--tag <tag> ...] [--title <name>] [--next <step>] [--choices <a>,<b>,...] [--ticket <KEY>] [--] <text>
   memo tag <id> <tag> [<tag> ...]
   memo untag <id> <tag> [<tag> ...]
   memo postpone <id> <YYYY-MM-DD> | memo postpone <id> now
@@ -17,7 +17,6 @@ const USAGE = `Usage:
   memo edit <id> [--] <new text>
   memo brief <id> [--title <name>] [--next <step>]
   memo note <id> --from <name> [--] <text>
-  memo compact <id> --from <name> [--title <name>] [--next <step>] [--] <new text>
   memo ack <id> [<id> ...]
   memo rule --from <agent> --rule '<permission rule>' --why '<one line>' [--impact 1-5] [--to <owner>]
   memo forward <id> [--to <agent>]
@@ -34,7 +33,8 @@ const USAGE = `Usage:
   memo tick list | memo tick remove <id> | memo tick log [<days>]
   memo ticket set <KEY> [--agent <name>] [--state queued|working|needs_you|in_review|landing|done] [--pr <url>] [--summary <one line>] [--title <title>] [--url <Linear url>] [--as <name>]
   memo ticket list
-A memo to the owner needs --impact and --effort (memo rule has impact 4 and effort micro). --title and --next are the brief for the compact view of the Inbox.`;
+A memo to the owner needs --impact and --effort (memo rule has impact 4 and effort micro). --title and --next are the brief on the card of the Inbox.
+--choices gives the owner one answer button for each word (for example push,draft,skip); a tap replies with that word.`;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 function fileEnv() {
@@ -82,7 +82,7 @@ async function call(path, body, { soft = false } = {}) {
   return data;
 }
 
-const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by', 'tag', 'title', 'next', 'rule', 'why', 'ticket', 'agent', 'state', 'pr', 'summary', 'url'];
+const OPTIONS = ['from', 'to', 'as', 'impact', 'effort', 'due', 'hold', 'days', 'every', 'after', 'by', 'tag', 'title', 'next', 'choices', 'rule', 'why', 'ticket', 'agent', 'state', 'pr', 'summary', 'url'];
 // An option that can come more than one time. Its value is a list.
 const REPEATED = ['tag'];
 function parse(argv) {
@@ -155,6 +155,7 @@ function show(c) {
     + (c.impact != null ? `, impact ${c.impact}, effort ${c.effort}` : '')
     + (c.due ? `, due ${c.due}` : '')
     + (c.tags?.length ? `, tags ${c.tags.join(' ')}` : '')
+    + (c.choices?.length ? `, choices ${c.choices.join(' | ')}` : '')
     + (c.ticket ? `, ticket ${c.ticket}` : '')
     + (c.until ? `, postponed until ${when(c.until)}` : '')
     + (c.state !== 'open' ? `, ${c.state}` : '');
@@ -187,7 +188,7 @@ const commands = {
     const r = await call('/api/send', {
       from: need('from'), to: need('to'), text: rest.join(' '),
       impact: flags.impact === undefined ? undefined : Number(flags.impact),
-      effort: flags.effort, due: flags.due, tags: flags.tag, title: flags.title, next: flags.next, ticket: flags.ticket,
+      effort: flags.effort, due: flags.due, tags: flags.tag, title: flags.title, next: flags.next, choices: flags.choices, ticket: flags.ticket,
     });
     console.log(`Memo ${r.memo.id} is sent to ${r.memo.recipient}.${r.memo.tags?.length ? ` Tags: ${r.memo.tags.join(' ')}.` : ''}${r.memo.ticket ? ` Ticket: ${r.memo.ticket}.` : ''}`);
     if (r.corrections.length) {
@@ -220,7 +221,7 @@ const commands = {
     await call('/api/edit', { id, text: rest.slice(1).join(' ') });
     console.log(`Memo ${id} has the new text.`);
   },
-  // The brief of an open memo for the compact view of the Inbox. An empty value removes that part.
+  // The brief of an open memo for its card in the Inbox. An empty value removes that part.
   async brief() {
     const id = memoId(rest[0]);
     if (rest.length > 1) fail('Give the brief with --title and --next.');
@@ -232,12 +233,6 @@ const commands = {
     const id = memoId(rest[0]);
     await call('/api/note', { id, from: need('from'), text: rest.slice(1).join(' ') });
     console.log(`Memo ${id} has the note. It stays open.`);
-  },
-  // The owner asked for a short memo: the old memo closes, and a new memo with the new text takes its place.
-  async compact() {
-    const id = memoId(rest[0]);
-    const r = await call('/api/compact', { id, from: need('from'), text: rest.slice(1).join(' '), title: flags.title, next: flags.next });
-    console.log(`Memo ${id} is compacted into memo ${r.memo.id}.`);
   },
   async close() {
     const id = memoId(rest[0]);
