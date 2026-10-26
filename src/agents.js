@@ -22,6 +22,9 @@ const MAX_SCREEN = 20000;
 const KEYS = ['Escape', 'Enter'];
 // The last line of a Claude Code dialog (a choice that waits for an answer).
 const DIALOG = /Enter to confirm|Esc to cancel/;
+// A dialog that waits this long sends one memo to the owner. The memo shows this many lines of the screen.
+const DIALOG_ALERT_MS = 15 * 60000;
+const DIALOG_LINES = 12;
 
 // The last lines of a screen, with no spaces at the line ends and no blank lines at the end.
 export function tail(text) {
@@ -89,12 +92,13 @@ export function realTmux() {
   };
 }
 
-export function createAgents({ db, config, root, tmux, owner = 'owner', computer = hostComputer(), counts = () => ({}), now = () => new Date(), recapTimeoutMs = 180000 }) {
+export function createAgents({ db, config, root, tmux, owner = 'owner', computer = hostComputer(), counts = () => ({}), now = () => new Date(), recapTimeoutMs = 180000, alert = () => {}, dialogAlertMs = DIALOG_ALERT_MS }) {
   const ts = () => now().toISOString();
   const timers = new Map();
   const contacts = new Map(); // remote agent -> the time of its last request, in milliseconds
   const screens = new Map(); // agent -> { text, at, changed }: the last screen, its time, and the time of its last change
   const keys = new Map(); // remote agent -> the keys that wait for its next screen
+  const dialogs = new Map(); // agent -> { since, sent }: the start of the dialog that waits, and whether its memo went
   const events = createEvents(db, now);
   for (const a of config) db.prepare('INSERT OR IGNORE INTO status (agent) VALUES (?)').run(a.name);
 
@@ -200,7 +204,37 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', computer
     if (a.kind === 'long' && running(name)) keep(name, tail(tmux.capture(session(name))));
     const s = screens.get(name);
     if (!s) return { name, text: null, at: null, changed: null, dialog: false };
-    return { name, ...s, dialog: DIALOG.test(s.text.split('\n').slice(-12).join('\n')) };
+    return { name, ...s, dialog: DIALOG.test(s.text.split('\n').slice(-DIALOG_LINES).join('\n')) };
+  }
+
+  // The server calls this each minute. A dialog stops the agent until someone answers it, so a dialog that waits for
+  // dialogAlertMs sends one memo to the owner (alert gets the fields of the memo). A new dialog sends a new memo.
+  // A stopped agent and an offline remote agent have no live screen, so they send nothing.
+  function checkDialogs() {
+    const t = now().getTime();
+    for (const a of config.filter((x) => x.kind !== 'short')) {
+      const last = contacts.get(a.name);
+      const live = a.kind === 'long' ? running(a.name) : last !== undefined && t - last < ONLINE_MS;
+      const s = live ? screen(a.name) : null;
+      if (!s?.dialog) { dialogs.delete(a.name); continue; }
+      if (!dialogs.has(a.name)) dialogs.set(a.name, { since: t, sent: false });
+      const d = dialogs.get(a.name);
+      if (d.sent || t - d.since < dialogAlertMs) continue;
+      d.sent = true;
+      const minutes = Math.floor((t - d.since) / 60000);
+      const lines = s.text.split('\n').slice(-DIALOG_LINES).join('\n');
+      try {
+        alert({
+          from: a.name, impact: 4, effort: 'micro', title: `${a.name} waits on a dialog`,
+          text: `**${a.name} waits on a Claude Code dialog for ${minutes} minutes.**\n`
+            + `${a.name} does no work until the dialog closes. Open the Agents page and send Escape or Enter. `
+            + 'If the dialog says that safeguards flagged the session, Escape does not hold: stop the agent and start it again.\n\n'
+            + '```text\n' + lines.replaceAll('```', "'''") + '\n```',
+        });
+      } catch (e) {
+        console.error(`Dialog alert for ${a.name}: ${e.message}`);
+      }
+    }
   }
 
   // From the computer of a remote agent. The answer gives the keys that wait for the session.
@@ -274,5 +308,5 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', computer
     }
   }
 
-  return { list, work, start, stop, recap, setStatus, prompt, defaultAgent, resume, contact, output, screen, setScreen, key, settingsFile };
+  return { list, work, start, stop, recap, setStatus, prompt, defaultAgent, resume, contact, output, screen, setScreen, key, settingsFile, checkDialogs };
 }
