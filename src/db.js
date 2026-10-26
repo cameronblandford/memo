@@ -140,6 +140,18 @@ export function openDb(path = ':memory:') {
       created TEXT NOT NULL
     );
   `);
+  // Stories (src/stories.js): the things that the owner cares about for a long time. A memo is in a story when it has
+  // the tag that is the key of the story. Nothing is deleted.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stories (
+      key TEXT PRIMARY KEY,                 -- a tag, for example body
+      title TEXT NOT NULL,
+      about TEXT NOT NULL DEFAULT '',       -- what the story means to the owner, in the owner's words
+      summary TEXT,                         -- Markdown from the agent; NULL: not written yet
+      summary_at TEXT,
+      created TEXT NOT NULL
+    );
+  `);
   // The capture collector (src/capture.js): each item of the capture page that became a memo. It is never deleted.
   db.exec(`
     CREATE TABLE IF NOT EXISTS captures (

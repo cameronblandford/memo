@@ -268,6 +268,16 @@ scripts/memo send --from main --to owner --impact 2 --effort micro --tag linear-
 
 The ticket shows in Needs you with the label "Linear draft". The owner makes the change in Linear and selects Done, or writes the reason and selects Done to refuse it.
 
+## Stories
+
+A story is something that the owner cares about for a long time, for example "feel good in my body" or "sleep well". It is not a memo: it has no state, no place in the queue, and it never closes. The page `/stories` shows each story with a summary of what the owner did for it.
+
+- The owner makes a story on the Stories page: a title, a tag (the key), and an optional text about what the story means. `memo story set <key> --title "<title>" -- "<text>"` does the same.
+- A memo is in a story when it has the tag of the story. The owner can add or remove the tag at any time, as each other tag: in the Inbox, or with `memo tag <id> <key>`. A memo from the owner to an agent can have tags too. The Inbox suggests the tags of the stories.
+- The agent `main` (or `MEMO_CAPTURE_TO`) writes the summaries. Each Sunday at 9:00 in the zone of the owner (`MEMO_TZ`), the server sends it one memo with the tag `story-summary` for all stories. The button "Write again" sends one for one story. An open request is not sent a second time.
+- The agent reads `memo story show <key>`, `memo history --days <n>` (the memos of a period in a short form), and `memo tick log`, and it decides which memos served the story, also memos with no tag. It saves the summary with `memo story summary <key>`. The charter of the agent gives the rules for the summary.
+- The memos do not change and do not depend on a story. Nothing in the queue changes.
+
 ## Capture while the computer is off
 
 The server runs on one computer. When that computer is off, the Inbox is off too. The capture page is a small page on a different host that is always on, for example on Vercel. It has one field, the same as the capture field of the Inbox: text, images, and Send. It keeps each memo until the server collects it.
@@ -382,6 +392,7 @@ To scan a range by hand: `scripts/pre-push-scan.sh --range origin/main..main`
 | `src/rules.js` | The approval of a permission rule: the checks, and the change of the settings file. |
 | `src/tickets.js` | The tickets of the Desk: the Memo part, the groups, and the Backlog. |
 | `src/linear.js` | The read-only Linear sync. It refuses a mutation. |
+| `src/stories.js` | Stories: the table, the requests for summaries, and the history for the agent. |
 | `src/capture.js` | The capture collector: memos from the capture page on a different host. |
 | `src/app.js` | The HTTP routes and the two tokens. |
 | `scripts/memo.mjs` | The command-line client. |

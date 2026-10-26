@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memo Stories</title>
+<link rel="stylesheet" href="/ui/common.css">
+<style>
+.story { padding: .9rem 1rem; }
+.story .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .6rem; }
+.story h2 { margin: 0; color: var(--ink); font-size: 1.2rem; line-height: 1.25; overflow-wrap: anywhere; }
+.story .key { color: var(--accent); font-size: .85rem; font-weight: 600; white-space: nowrap; }
+.story .about { margin: .3rem 0 0; color: var(--dim); font-style: italic; overflow-wrap: anywhere; white-space: pre-wrap; }
+.story .summary { margin: .6rem 0 0; }
+.story .empty { margin: .6rem 0 0; color: var(--dim); }
+.story .meta { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; margin-top: .75rem; color: var(--dim); font-size: .85rem; }
+.story .meta button { padding: .15rem .6rem; font-size: .85rem; }
+.story .meta .asked { color: var(--accent); }
+.story details { margin-top: .6rem; font-size: .9rem; }
+.story details summary { color: var(--dim); cursor: pointer; }
+.story details ul { margin: .4rem 0 0; padding-left: 1.1rem; }
+.story details li { overflow-wrap: anywhere; }
+.story details .state { color: var(--dim); font-size: .8rem; }
+.edit { display: grid; gap: .45rem; margin-top: .6rem; }
+.edit label { display: grid; gap: .2rem; color: var(--dim); font-size: .85rem; }
+.edit .row { display: flex; gap: .5rem; }
+#new { margin-top: 1.25rem; }
+#new > summary { cursor: pointer; font-weight: 600; }
+</style>
+</head>
+<body>
+<header><h1>Stories</h1><a href="/inbox">Inbox</a><a href="/desk">Desk</a><a href="/chat">Chat</a><a href="/agents">Agents</a><a href="/log">Log</a></header>
+<form id="token-form" hidden>
+  <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
+  <button>Save</button>
+</form>
+<p id="note" role="status" hidden></p>
+<main id="list"></main>
+<details id="new">
+  <summary>New story</summary>
+  <form class="edit" id="new-form">
+    <label>Title<input name="title" required maxlength="80" placeholder="Feel good in my body"></label>
+    <label>Tag (the key: a memo with this tag is in the story)<input name="key" required maxlength="24" pattern="[a-z][a-z0-9\-]*" placeholder="body"></label>
+    <label>What it means to you (optional)<textarea name="about" rows="3" maxlength="2000"></textarea></label>
+    <div class="row"><button>Create</button></div>
+  </form>
+</details>
+<footer><p>A story is something that you care about for a long time. It is not a memo: it has no state and it never closes. Each Sunday at 9:00, main writes each summary again from your memos and ticks, and it can look at other data on the Mac. Add the tag of a story to a memo in the Inbox to put that memo in the story; main also finds memos with no tag. Write again asks main for a new summary now.</p></footer>
+<script type="module">
+import { api, el, button, tokenForm, note, age } from '/ui/common.js';
+import { render as markdown } from '/ui/markdown.js';
+
+const list = document.getElementById('list');
+const newForm = document.getElementById('new-form');
+const editing = new Set(); // keys of the stories whose edit form is open: a reload does not close it
+const opened = new Set(); // keys of the stories whose memo list is open: a reload keeps it open
+let shown = '';
+
+// A tag from a title: "Feel good in my body" gives "feel-good-in-my-body", cut to 24 characters.
+const keyFrom = (title) => title.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^[^a-z]+/, '').slice(0, 24).replace(/-+$/, '');
+
+async function act(b, fn) {
+  b.disabled = true;
+  try { await fn(); note(''); shown = ''; await load(); } catch (error) { note(error.message); } finally { b.disabled = false; }
+}
+
+function memosView(s) {
+  const box = el('details');
+  const items = el('ul');
+  box.append(el('summary', {}, `${s.count} memo${s.count === 1 ? '' : 's'} with the tag ${s.key}`), items);
+  // The memos load when the owner opens the list.
+  box.addEventListener('toggle', async () => {
+    if (box.open) opened.add(s.key); else opened.delete(s.key);
+    if (!box.open || items.childElementCount) return;
+    try {
+      const full = await api(`/api/story?key=${encodeURIComponent(s.key)}`);
+      items.replaceChildren(...full.memos.map((m) => el('li', {}, `#${m.id} ${m.title} `, el('span', { className: 'state' }, `${m.state}, ${m.created.slice(0, 10)}`))));
+      if (!full.memos.length) items.append(el('li', {}, 'No memo has this tag yet.'));
+    } catch (error) { note(error.message); }
+  });
+  box.open = opened.has(s.key);
+  return box;
+}
+
+function editView(s) {
+  const title = el('input', { value: s.title, maxLength: 80, required: true });
+  const about = el('textarea', { value: s.about, rows: 3, maxLength: 2000 });
+  const form = el('form', { className: 'edit' },
+    el('label', {}, 'Title', title), el('label', {}, 'What it means to you', about),
+    el('div', { className: 'row' }, el('button', {}, 'Save'), button('Cancel', () => { editing.delete(s.key); shown = ''; render(data); })));
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    act(form.querySelector('button'), async () => { await api('/api/story', { key: s.key, title: title.value, about: about.value }); editing.delete(s.key); });
+  });
+  return form;
+}
+
+function storyView(s) {
+  const node = el('article', { className: 'memo story' },
+    el('div', { className: 'head' }, el('h2', {}, s.title), el('span', { className: 'key', title: 'The tag of the story' }, `#${s.key}`)));
+  if (s.about) node.append(el('p', { className: 'about' }, s.about));
+  if (s.summary) {
+    node.append(el('div', { className: 'summary md' }, ...markdown(s.summary, el)));
+  } else node.append(el('p', { className: 'empty' }, 'No summary yet. main writes it on Sunday, or now with Write again.'));
+  const meta = el('div', { className: 'meta' });
+  if (s.summary_at) meta.append(el('span', { title: s.summary_at }, `Written ${age(s.summary_at)}`));
+  if (s.request) meta.append(el('span', { className: 'asked' }, `main is on it (memo #${s.request})`));
+  else meta.append(button('Write again', (b) => act(b, () => api('/api/story/ask', { key: s.key })), 'Ask main for a new summary of this story now'));
+  meta.append(button('Edit', () => { editing.add(s.key); shown = ''; render(data); }, 'Change the title or the text'));
+  node.append(meta);
+  if (editing.has(s.key)) node.append(editView(s));
+  node.append(memosView(s));
+  return node;
+}
+
+let data = [];
+function render(stories) {
+  const key = JSON.stringify(stories);
+  if (key === shown) return;
+  shown = key;
+  list.replaceChildren(...stories.map(storyView));
+  if (!stories.length) list.append(el('p', { className: 'empty' }, 'There is no story yet. Make the first one below.'));
+  document.getElementById('new').open = !stories.length;
+}
+
+async function load() {
+  try { data = await api('/api/stories'); render(data); } catch (error) { note(error.message); }
+}
+
+newForm.elements.title.addEventListener('input', () => {
+  const k = newForm.elements.key;
+  if (!k.dataset.typed) k.value = keyFrom(newForm.elements.title.value);
+});
+newForm.elements.key.addEventListener('input', () => { newForm.elements.key.dataset.typed = '1'; });
+newForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const f = newForm.elements;
+  act(newForm.querySelector('button'), async () => {
+    await api('/api/story', { key: f.key.value, title: f.title.value, about: f.about.value });
+    newForm.reset();
+    delete f.key.dataset.typed;
+  });
+});
+
+tokenForm(load);
+load();
+// The summaries change seldom: the page loads again when it comes back to the screen, and each minute.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+setInterval(() => { if (!editing.size) load(); }, 60000);
+</script>
+</body>
+</html>

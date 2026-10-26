@@ -43,7 +43,9 @@ test('tag and untag change the tags of a memo to the owner, also of a closed mem
   store.close(memo.id);
   assert.deepEqual(store.tag(memo.id, 'money', true).tags, ['admin', 'money']);
   const toMain = store.send({ from: 'cam', to: 'main', text: 'Do this.' }).memo;
-  refuses(() => store.tag(toMain.id, 'work', true), 400, 'Only a memo to cam has tags');
+  assert.deepEqual(store.tag(toMain.id, 'body', true).tags, ['body'], 'a memo from the owner can have tags');
+  const fromMain = store.send({ from: 'main', to: 'liaison', text: 'Look.' }).memo;
+  refuses(() => store.tag(fromMain.id, 'work', true), 400, 'Only a memo to or from cam has tags');
   refuses(() => store.tag(memo.id, '', true), 400, 'tag is necessary');
 });
 

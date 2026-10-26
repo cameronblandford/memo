@@ -8,6 +8,7 @@ import { createAgents } from '../src/agents.js';
 import { createApp } from '../src/app.js';
 import { createTicks } from '../src/ticks.js';
 import { createTickets } from '../src/tickets.js';
+import { createStories } from '../src/stories.js';
 
 export const TOKEN = 'full-token-0123456789';
 export const LIAISON_TOKEN = 'liaison-token-0123456789';
@@ -27,8 +28,9 @@ export function makeApp({ tailscale, config = CONFIG, ticksOn = true, linear } =
   const agents = createAgents({ db, config, root: ROOT, owner: 'cam', tmux, counts: store.counts });
   const images = createImages(mkdtempSync(join(tmpdir(), 'memo-images-')));
   const ticks = createTicks(db);
-  const app = createApp({ store, agents, images, ticks, tickets, linear, ticksOn, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, ownerToken: OWNER_TOKEN, owner: 'cam', tailscale });
-  return { app, store, agents, images, ticks, tickets, sessions, db };
+  const stories = createStories(db, { store, owner: 'cam' });
+  const app = createApp({ store, agents, images, ticks, tickets, linear, stories, ticksOn, root: ROOT, token: TOKEN, liaisonToken: LIAISON_TOKEN, ownerToken: OWNER_TOKEN, owner: 'cam', tailscale });
+  return { app, store, agents, images, ticks, tickets, stories, sessions, db };
 }
 
 export async function call(app, path, body, token = TOKEN) {

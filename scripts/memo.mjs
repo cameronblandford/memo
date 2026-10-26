@@ -33,6 +33,11 @@ const USAGE = `Usage:
   memo tick list | memo tick remove <id> | memo tick log [<days>]
   memo ticket set <KEY> [--agent <name>] [--state queued|working|needs_you|in_review|landing|done] [--pr <url>] [--summary <one line>] [--title <title>] [--url <Linear url>] [--as <name>]
   memo ticket list
+  memo story list | memo story show <key>
+  memo story set <key> --title <title> [--] [<what the story means>]
+  memo story summary <key> [--] <Markdown>      (use - in the place of the text to read it from stdin)
+  memo story ask [<key>]                         (a request to main for a new summary; no key: all stories)
+  memo history [--days <n>]                      (the memos of the last n days, default 30, in a short form)
 A memo to the owner needs --impact and --effort (memo rule has impact 4 and effort micro). --title and --next are the brief on the card of the Inbox.
 --choices gives the owner one answer button for each word (for example push,draft,skip); a tap replies with that word.
 memo note --text changes the memo text and adds the note in one step: the memo text is the current state, and the note is the short answer.`;
@@ -363,6 +368,49 @@ const commands = {
       console.log(out.length ? out.join('\n\n') : 'The Desk has no tickets.');
       if (d.sync?.on) console.log(`\nLinear sync: ${d.sync.last ? `${d.sync.ok ? 'ok' : `failed (${d.sync.error})`} at ${when(d.sync.last)}` : 'not run yet'}.`);
     } else fail(USAGE);
+  },
+  // Stories: the things that the owner cares about for a long time (src/stories.js).
+  async story() {
+    const [action, key, ...words] = rest;
+    const text = async () => {
+      if (words.length === 1 && words[0] === '-') {
+        const chunks = [];
+        for await (const chunk of process.stdin) chunks.push(chunk);
+        return Buffer.concat(chunks).toString('utf8');
+      }
+      return words.join(' ');
+    };
+    const head = (s) => `${s.key}: ${s.title}${s.summary_at ? ` (summary of ${when(s.summary_at)})` : ' (no summary yet)'}, ${s.count} memo${s.count === 1 ? '' : 's'} with the tag`;
+    if (action === 'list') {
+      const list = await call('/api/stories');
+      console.log(list.length ? list.map(head).join('\n') : 'There is no story yet.');
+    } else if (action === 'show') {
+      if (!key) fail('Give the key of the story, for example: memo story show body');
+      const s = await call(`/api/story?key=${query(key)}`);
+      const memos = s.memos.map((m) => `  #${m.id} ${m.state} ${m.sender}->${m.recipient} ${m.created.slice(0, 10)}: ${m.title}`);
+      const parts = [head(s)];
+      if (s.about) parts.push(`What it means: ${s.about}`);
+      parts.push('', memos.length ? `Memos with the tag ${s.key}:\n${memos.join('\n')}` : `No memo has the tag ${s.key}.`);
+      parts.push('', s.summary ? `Current summary:\n${s.summary}` : 'No summary yet.');
+      console.log(parts.join('\n'));
+    } else if (action === 'set') {
+      if (!key || !flags.title) fail('Give the key and the title, for example: memo story set body --title "Feel good in my body"');
+      const s = await call('/api/story', { key, title: flags.title, about: await text() });
+      console.log(`Story ${s.key}: ${s.title}.`);
+    } else if (action === 'summary') {
+      if (!key) fail('Give the key of the story, for example: memo story summary body -- "<Markdown>"');
+      const s = await call('/api/story/summary', { key, text: await text() });
+      console.log(`The summary of the story ${s.key} is saved.`);
+    } else if (action === 'ask') {
+      const r = await call('/api/story/ask', { key: key || null });
+      console.log(r.sent ? `Memo ${r.memo} asks main for the summary.` : `Memo ${r.memo} asks for it already.`);
+    } else fail(USAGE);
+  },
+  async history() {
+    const list = await call(`/api/history?days=${query(flags.days ?? 30)}`);
+    if (!list.length) return console.log('No memos in that time.');
+    console.log(list.map((m) => `#${m.id} ${m.created.slice(0, 10)} ${m.sender}->${m.recipient} ${m.state}${m.tags.length ? ` [${m.tags.join(' ')}]` : ''}: ${m.title}`
+      + (m.result ? `\n    Result: ${m.result}` : '')).join('\n'));
   },
   async wait() {
     const who = need('as');

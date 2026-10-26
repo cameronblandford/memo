@@ -387,7 +387,8 @@ export function createStore(db, { names, owner = 'owner', forwardTo = names.filt
   // Adds (on: true) or removes (on: false) one tag of a memo to the owner. The memo can be open or closed.
   function tag(id, name, on) {
     const c = get(id);
-    if (c.recipient !== owner) throw new MemoError(400, `Only a memo to ${owner} has tags.`);
+    // A memo from the owner can have tags too, so the owner can put a request to an agent in a story (src/stories.js).
+    if (c.recipient !== owner && c.sender !== owner) throw new MemoError(400, `Only a memo to or from ${owner} has tags.`);
     if (typeof on !== 'boolean') throw new MemoError(400, 'on must be true or false.');
     const [t] = checkTags(name);
     if (!t) throw new MemoError(400, 'tag is necessary.');

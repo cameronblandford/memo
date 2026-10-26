@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/ui/common.css">
 </head>
 <body>
-<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><select id="sort" aria-label="Order" title="The order of the memos: Rank (due soon, then impact per effort) or Recently updated (the newest send, note, edit, or return from a postpone first)"><option value="rank">Rank</option><option value="updated">Recently updated</option></select><span id="view" role="group" aria-label="View"><button type="button" data-view="list" aria-pressed="true" title="All memos in a list">List</button><button type="button" data-view="card" aria-pressed="false" title="One memo at a time, in the order and with the filter of the list. Swipe or use the arrow keys to go to the next or the previous memo">One card</button></span><a href="/desk">Desk</a><a href="/chat">Chat</a><a href="/agents">Agents</a><a href="/log">Log</a></header>
+<header><h1>Inbox</h1><span id="count"></span><select id="filter" aria-label="Filter" title="Show all memos, the work memos (tag work, or a code such as SUB-6), the personal memos, or one tag. Key: w toggles Work"><option value="all">All</option></select><select id="sort" aria-label="Order" title="The order of the memos: Rank (due soon, then impact per effort) or Recently updated (the newest send, note, edit, or return from a postpone first)"><option value="rank">Rank</option><option value="updated">Recently updated</option></select><span id="view" role="group" aria-label="View"><button type="button" data-view="list" aria-pressed="true" title="All memos in a list">List</button><button type="button" data-view="card" aria-pressed="false" title="One memo at a time, in the order and with the filter of the list. Swipe or use the arrow keys to go to the next or the previous memo">One card</button></span><a href="/desk">Desk</a><a href="/chat">Chat</a><a href="/agents">Agents</a><a href="/stories">Stories</a><a href="/log">Log</a></header>
 <form id="token-form" hidden>
   <input name="token" type="password" placeholder="Token" autocomplete="off" required aria-label="Token">
   <button>Save</button>
@@ -199,7 +199,7 @@ function tagEditor(memo) {
   const field = el('input', { type: 'text', placeholder: 'tag', autocomplete: 'off', maxLength: 24 });
   field.setAttribute('aria-label', `New tag for memo ${memo.id}`);
   field.setAttribute('list', `tags-${memo.id}`);
-  const options = el('datalist', { id: `tags-${memo.id}` }, ...tagSuggestions(memos, memo).map((t) => el('option', { value: t })));
+  const options = el('datalist', { id: `tags-${memo.id}` }, ...tagSuggestions(memos, memo, storyKeys).map((t) => el('option', { value: t })));
   const panel = el('div', { className: 'panel', hidden: true }, field, options,
     button('Add', () => setTag(memo, field.value, true)), button('Cancel', () => { panel.hidden = true; }));
   field.addEventListener('keydown', (event) => {
@@ -786,6 +786,16 @@ const reply = (memo, text, buttonNode, onDone) => {
 const close = (memo, buttonNode, onDone) => send(buttonNode, async () => { await api('/api/close', { id: memo.id, text: drafts.get(memo.id) || undefined }); drafts.delete(memo.id); onDone?.(); }, '', memo.id);
 const adjust = (id, delta) => run(() => api('/api/adjust', { id, delta }));
 
+// The keys of the stories, for the tag suggestions: a memo with such a tag is in that story.
+let storyKeys = [];
+async function loadStories() {
+  try { storyKeys = (await api('/api/stories')).map((s) => s.key); } catch { /* the suggestions work without them */ }
+  // The lists on the screen were made before the keys came: add the keys to them, with no new render of the list.
+  for (const list of document.querySelectorAll('datalist[id^="tags-"]')) {
+    const have = new Set([...list.options].map((o) => o.value));
+    for (const key of storyKeys) if (!have.has(key)) list.append(el('option', { value: key }));
+  }
+}
 async function loadAgents() {
   try {
     const list = await api('/api/agents');
@@ -853,9 +863,10 @@ document.addEventListener('keydown', (event) => {
   else if (event.key === 'o') toggleDetails(selected);
 });
 
-tokenForm(() => { load(); loadAgents(); });
+tokenForm(() => { load(); loadAgents(); loadStories(); });
 load();
 loadAgents();
+loadStories();
 // A new list replaces the reply fields, so while the owner types, only the work sign changes.
 setInterval(() => load({ list: !typing() }), 15000);
 </script>

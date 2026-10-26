@@ -31,8 +31,8 @@ const same = (a, b) => timingSafeEqual(digest(a), digest(b));
 
 // ticksOn: the ticks are an optional part. They are off unless MEMO_TICKS is set (see README.md).
 // ownerToken: the optional token of the owner alone (MEMO_OWNER_TOKEN). The agents have token (MEMO_TOKEN).
-// tickets: the Desk (src/tickets.js). linear: the read-only Linear sync (src/linear.js), or none.
-export function createApp({ store, agents, images, ticks, tickets, linear, ticksOn = false, root, token, liaisonToken, ownerToken, owner = 'owner', tailscale, now = () => new Date() }) {
+// stories: the Stories page (src/stories.js). tickets: the Desk (src/tickets.js). linear: the read-only Linear sync (src/linear.js), or none.
+export function createApp({ store, agents, images, ticks, tickets, linear, stories, ticksOn = false, root, token, liaisonToken, ownerToken, owner = 'owner', tailscale, now = () => new Date() }) {
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -65,6 +65,7 @@ export function createApp({ store, agents, images, ticks, tickets, linear, ticks
   app.get('/log', page('log.html'));
   app.get('/chat', page('chat.html'));
   app.get('/desk', page('desk.html'));
+  app.get('/stories', page('stories.html'));
   app.get('/ui/:file', (c) => {
     const file = c.req.param('file');
     if (!Object.hasOwn(UI, file)) return c.notFound();
@@ -164,6 +165,34 @@ export function createApp({ store, agents, images, ticks, tickets, linear, ticks
     const b = await body(c);
     only(c, false);
     return c.json(store.adjust(b.id, b.delta));
+  });
+  // Stories (src/stories.js). Only the full token: the owner and main.
+  app.get('/api/stories', (c) => {
+    only(c, false);
+    return c.json(stories.list());
+  });
+  app.get('/api/story', (c) => {
+    only(c, false);
+    return c.json(stories.get(c.req.query('key')));
+  });
+  app.post('/api/story', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(stories.set(b));
+  });
+  app.post('/api/story/summary', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(stories.writeSummary(b.key, b.text));
+  });
+  app.post('/api/story/ask', async (c) => {
+    const b = await body(c);
+    only(c, false);
+    return c.json(stories.ask(b.key || null));
+  });
+  app.get('/api/history', (c) => {
+    only(c, false);
+    return c.json(stories.history(c.req.query('days') ?? 30));
   });
   app.post('/api/tag', async (c) => {
     const b = await body(c);

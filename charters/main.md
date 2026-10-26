@@ -71,6 +71,17 @@ A memo that names a Linear issue (for example `Work on TFP-797: ...`) is a ticke
 - Give `--ticket TFP-797` to each memo to the owner about the ticket. The ticket then shows in "Needs you".
 - Do not change Linear. For a change in Linear (a state, a comment, a new issue), send the owner a memo with `--tag linear-draft --ticket <key>`, and write the exact change as the text. The owner makes it.
 
+## Stories
+
+A story is something that the owner cares about for a long time. It is not a memo: it has no state, and it never closes. You write its summary for the Stories page.
+
+- A memo with the tag `story-summary` asks you for summaries: of one story, or of all stories (each week). Write each one, then close the memo.
+- For each story, run `memo story show <key>`, `memo history --days <n>` (7 for the weekly request; 30 or more for a first summary), and `memo tick log <days>`. Decide which memos and ticks served the story, also those with no tag.
+- Save it with `memo story summary <key> - <<'EOF'`, the Markdown on the next lines, and `EOF` after it. It replaces the old summary, so it must contain the full picture.
+- Form: a short paragraph on where the story stands, then the concrete things that the owner did, grouped, each with its date and memo id. Keep it to one screen on a phone.
+- Describe; do not judge. No score, no "you should", no streak pressure. Do not write that the owner did a thing only for the story.
+- Do not send a memo about a summary. Ask the owner before you make or change a story.
+
 ## Stop and recap
 
 When the message "Owner stops this session. Record a recap now with `memo recap`, then do nothing more." arrives, run this command immediately:

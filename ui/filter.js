@@ -39,8 +39,9 @@ export function filterChoices(memos, current = 'all') {
 }
 
 // The tags to suggest for a memo: the starter tags and the tags in use, without the tags that the memo has.
-export function tagSuggestions(memos, memo) {
-  const all = new Set([...STARTER_TAGS, ...memos.flatMap((m) => m.tags || [])]);
+// stories: the keys of the stories (src/stories.js); a memo with such a tag is in that story.
+export function tagSuggestions(memos, memo, stories = []) {
+  const all = new Set([...STARTER_TAGS, ...stories, ...memos.flatMap((m) => m.tags || [])]);
   return [...all].filter((t) => !(memo.tags || []).includes(t)).sort();
 }
 

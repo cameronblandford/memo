@@ -368,3 +368,27 @@ test('note --text changes the memo text and adds the note in one request; the me
   assert.equal(store.get(1).text, 'Approve the plan? It costs $14 each month.');
   assert.equal(store.get(1).state, 'waiting');
 }));
+
+test('memo story and memo history: set, list, show, summary from stdin, ask, and the history', () => withServer(async ({ memo, store, url }) => {
+  assert.match((await memo(['story', 'list'])).stdout, /There is no story yet\./);
+  const set = await memo(['story', 'set', 'body', '--title', 'Feel good in my body', '--', 'Strong', 'and', 'rested.']);
+  assert.match(set.stdout, /Story body: Feel good in my body\./);
+  const m = store.send({ from: 'cam', to: 'main', text: 'Book a physio' }).memo;
+  await memo(['tag', String(m.id), 'body']);
+  store.close(m.id, 'Booked for Tuesday.');
+  const show = await memo(['story', 'show', 'body']);
+  assert.match(show.stdout, /What it means: Strong and rested\./);
+  assert.match(show.stdout, new RegExp(`#${m.id} closed cam->main .*: Book a physio`));
+  assert.match(show.stdout, /No summary yet\./);
+  const saved = await new Promise((done) => {
+    const child = execFile('node', [CLI, 'story', 'summary', 'body', '-'], { env: { ...process.env, MEMO_URL: url, MEMO_TOKEN: TOKEN } }, (e, stdout) => done(stdout));
+    child.stdin.end('## Body\n\n- Booked a physio.\n');
+  });
+  assert.match(saved, /The summary of the story body is saved\./);
+  assert.match((await memo(['story', 'list'])).stdout, /body: Feel good in my body \(summary of .* UTC\), 1 memo with the tag/);
+  assert.match((await memo(['story', 'ask', 'body'])).stdout, /asks main for the summary/);
+  assert.match((await memo(['story', 'ask', 'body'])).stdout, /asks for it already/);
+  const history = await memo(['history', '--days', '7']);
+  assert.match(history.stdout, new RegExp(`#${m.id} .* cam->main closed \\[body\\]: Book a physio\\n    Result: Booked for Tuesday\\.`));
+  assert.doesNotMatch(history.stdout, /Write the summary/);
+}));

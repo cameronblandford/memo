@@ -11,6 +11,7 @@ import { createTicks } from './ticks.js';
 import { localFile } from './paths.js';
 import { createTickets } from './tickets.js';
 import { createLinearSync, DEFAULT_MINUTES } from './linear.js';
+import { createStories } from './stories.js';
 import { createCaptureSync, DEFAULT_SECONDS as CAPTURE_SECONDS } from './capture.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -86,7 +87,9 @@ if (!!process.env.MEMO_CAPTURE_URL !== !!process.env.MEMO_CAPTURE_PULL_TOKEN || 
   process.exit(1);
 }
 const capture = createCaptureSync({ db, store, images, owner, to: captureTo, url: process.env.MEMO_CAPTURE_URL, token: process.env.MEMO_CAPTURE_PULL_TOKEN, seconds: captureSeconds });
-const app = createApp({ store, agents, images, ticks, tickets, linear, ticksOn, root, token, liaisonToken, ownerToken, owner, tailscale });
+// The agent that writes the summaries of the stories: the capture agent, main by default.
+const stories = createStories(db, { store, owner, agent: captureTo, timeZone: process.env.MEMO_TZ || 'America/New_York' });
+const app = createApp({ store, agents, images, ticks, tickets, linear, stories, ticksOn, root, token, liaisonToken, ownerToken, owner, tailscale });
 
 const port = Number(process.env.PORT || 3280);
 serve({ fetch: app.fetch, hostname, port }, () => {
@@ -94,6 +97,10 @@ serve({ fetch: app.fetch, hostname, port }, () => {
   agents.resume();
   linear.start();
   capture.start();
+  // Each hour: on Sunday after 9:00, one request to the agent for new summaries of all stories.
+  const weekly = () => { try { stories.weekly(); } catch (e) { console.error(`Stories: ${e.message}`); } };
+  weekly();
+  setInterval(weekly, 3600000).unref();
   setInterval(() => {
     try { agents.checkDialogs(); } catch (e) { console.error(`Dialog check: ${e.message}`); }
   }, 60000).unref();
