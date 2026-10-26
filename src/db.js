@@ -140,5 +140,14 @@ export function openDb(path = ':memory:') {
       created TEXT NOT NULL
     );
   `);
+  // The capture collector (src/capture.js): each item of the capture page that became a memo. It is never deleted.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS captures (
+      id TEXT PRIMARY KEY,                  -- the id that the capture page gave the item
+      memo_id INTEGER NOT NULL,
+      at TEXT,                              -- the time that the owner wrote the item on the page
+      collected TEXT NOT NULL
+    );
+  `);
   return db;
 }

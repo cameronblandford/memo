@@ -11,6 +11,7 @@ import { createTicks } from './ticks.js';
 import { localFile } from './paths.js';
 import { createTickets } from './tickets.js';
 import { createLinearSync, DEFAULT_MINUTES } from './linear.js';
+import { createCaptureSync, DEFAULT_SECONDS as CAPTURE_SECONDS } from './capture.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const { MEMO_TOKEN: token, MEMO_LIAISON_TOKEN: liaisonToken, MEMO_OWNER_TOKEN: ownerToken } = process.env;
@@ -71,6 +72,18 @@ if (!(linearMinutes >= 1)) {
   process.exit(1);
 }
 const linear = createLinearSync({ tickets, apiKey: process.env.LINEAR_API_KEY || '', minutes: linearMinutes });
+// Optional: the capture page on a different host, for memos that the owner writes while this computer is off.
+const captureSeconds = Number(process.env.MEMO_CAPTURE_SECONDS || CAPTURE_SECONDS);
+const captureTo = process.env.MEMO_CAPTURE_TO || 'main';
+if (process.env.MEMO_CAPTURE_URL && !config.some((a) => a.name === captureTo && a.kind !== 'short')) {
+  console.error(`MEMO_CAPTURE_TO must be the name of a long or remote agent in agents.json (now: ${captureTo}).`);
+  process.exit(1);
+}
+if (!!process.env.MEMO_CAPTURE_URL !== !!process.env.MEMO_CAPTURE_PULL_TOKEN || !(captureSeconds >= 10)) {
+  console.error('Set MEMO_CAPTURE_URL and MEMO_CAPTURE_PULL_TOKEN together, and MEMO_CAPTURE_SECONDS to 10 or more.');
+  process.exit(1);
+}
+const capture = createCaptureSync({ db, store, images, owner, to: captureTo, url: process.env.MEMO_CAPTURE_URL, token: process.env.MEMO_CAPTURE_PULL_TOKEN, seconds: captureSeconds });
 const app = createApp({ store, agents, images, ticks, tickets, linear, ticksOn, root, token, liaisonToken, ownerToken, owner, tailscale });
 
 const port = Number(process.env.PORT || 3280);
@@ -78,4 +91,5 @@ serve({ fetch: app.fetch, hostname, port }, () => {
   console.log(`Memo listens on http://${hostname}:${port}`);
   agents.resume();
   linear.start();
+  capture.start();
 });

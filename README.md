@@ -268,6 +268,20 @@ scripts/memo send --from main --to owner --impact 2 --effort micro --tag linear-
 
 The ticket shows in Needs you with the label "Linear draft". The owner makes the change in Linear and selects Done, or writes the reason and selects Done to refuse it.
 
+## Capture while the computer is off
+
+The server runs on one computer. When that computer is off, the Inbox is off too. The capture page is a small page on a different host that is always on, for example on Vercel. It has one field, the same as the capture field of the Inbox: text, images, and Send. It keeps each memo until the server collects it.
+
+1. Put the page on the other host. The page must give five routes:
+   - `POST /api/capture/item` with `{ "text": "..." }`, and `POST /api/capture/image` with the bytes of one image. The image name is the same as in `data/images/` (16 hex digits of its SHA-256, then the type), so the text keeps the line `![image](image:<name>)`.
+   - `GET /api/capture/count`: the number of memos that wait.
+   - `GET /api/capture/pending`: `{ "items": [{ "id", "at", "text" }] }`, `GET /api/capture/image?name=<name>`, and `POST /api/capture/done` with `{ "id" }`. These three are for the server.
+2. Give the page two different tokens: one for the phone (it can only add items and read the count) and one for the server (it can only read and delete). A person with the phone token can give work to an agent, so keep it secret.
+3. In `.env`, set `MEMO_CAPTURE_URL` to the address of the page and `MEMO_CAPTURE_PULL_TOKEN` to the server token. Optional: `MEMO_CAPTURE_TO`, the agent that gets the memos (default `main`), and `MEMO_CAPTURE_SECONDS`, the time between two collections (default 60).
+4. Start the server again.
+
+Each item becomes a memo from the owner to `MEMO_CAPTURE_TO`, the same as a memo from the capture field of the Inbox. The memo keeps the time that the owner wrote it on the page. The images go into `data/images/` first. Then the server tells the page to delete the item. The table `captures` records each item that became a memo, so an item never becomes two memos, also if the delete fails. If an image is missing, the item waits, and the server tries again at the next collection. Errors go to the log of the server.
+
 ## An agent on a different computer
 
 A remote agent has its session on a different computer from the server. Use it when the server is always on (for example in the cloud) and some work needs a computer that is not always on.
@@ -368,6 +382,7 @@ To scan a range by hand: `scripts/pre-push-scan.sh --range origin/main..main`
 | `src/rules.js` | The approval of a permission rule: the checks, and the change of the settings file. |
 | `src/tickets.js` | The tickets of the Desk: the Memo part, the groups, and the Backlog. |
 | `src/linear.js` | The read-only Linear sync. It refuses a mutation. |
+| `src/capture.js` | The capture collector: memos from the capture page on a different host. |
 | `src/app.js` | The HTTP routes and the two tokens. |
 | `scripts/memo.mjs` | The command-line client. |
 | `scripts/agent.sh` | Starts the session of a long agent. |
