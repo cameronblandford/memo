@@ -378,3 +378,76 @@ test('loadConfig accepts a short computer name and refuses a wrong one', () => {
     assert.throws(() => loadConfig(write([{ name: 'mac', kind: 'remote', computer }])), /computer/);
   }
 });
+
+test('a dialog that waits for 15 minutes sends one alert for each dialog', () => {
+  let time = Date.parse('2026-01-01T10:00:00Z');
+  const alerts = [];
+  const { agents, tmux } = make({ config: WITH_REMOTE, now: () => new Date(time), alert: (a) => alerts.push(a) });
+  const dialog = 'Model switch\n  Enter to select · ↑/↓ to navigate · Esc to cancel';
+  agents.start('main');
+  tmux.screens.set(session('main'), dialog);
+  agents.checkDialogs();
+  time += 14 * 60000;
+  agents.checkDialogs();
+  assert.equal(alerts.length, 0);
+  time += 60000;
+  agents.checkDialogs();
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].from, 'main');
+  assert.equal(alerts[0].impact, 4);
+  assert.equal(alerts[0].effort, 'micro');
+  assert.match(alerts[0].text, /^\*\*main waits on a Claude Code dialog for 15 minutes\.\*\*/);
+  assert.ok(alerts[0].text.includes('Model switch'));
+  time += 30 * 60000;
+  agents.checkDialogs();
+  assert.equal(alerts.length, 1);
+  // The dialog closes, and a new dialog starts its own 15 minutes.
+  tmux.screens.set(session('main'), 'Working.');
+  agents.checkDialogs();
+  tmux.screens.set(session('main'), dialog);
+  agents.checkDialogs();
+  time += 15 * 60000;
+  agents.checkDialogs();
+  assert.equal(alerts.length, 2);
+});
+
+test('the dialog alert skips a stopped agent and an offline remote agent', () => {
+  let time = Date.parse('2026-01-01T10:00:00Z');
+  const alerts = [];
+  const { agents, tmux } = make({ config: WITH_REMOTE, now: () => new Date(time), alert: (a) => alerts.push(a) });
+  const dialog = 'Teach auto mode about your environment?\n  Enter to confirm · Esc to cancel';
+  tmux.screens.set(session('main'), dialog);
+  agents.setScreen('mac', dialog);
+  agents.checkDialogs();
+  time += 15 * 60000;
+  agents.checkDialogs();
+  // main has no session. mac sent no screen for 15 minutes, so its last screen is old.
+  assert.equal(alerts.length, 0);
+  agents.setScreen('mac', dialog);
+  agents.checkDialogs();
+  time += 60000;
+  agents.setScreen('mac', dialog);
+  time += 15 * 60000;
+  agents.setScreen('mac', dialog);
+  agents.checkDialogs();
+  assert.deepEqual(alerts.map((a) => a.from), ['mac']);
+});
+
+test('a dialog alert that fails goes again at the next check', () => {
+  let time = Date.parse('2026-01-01T10:00:00Z');
+  let fail = true;
+  const alerts = [];
+  const { agents, tmux } = make({ now: () => new Date(time), alert: (a) => { if (fail) throw new Error('no database'); alerts.push(a); } });
+  agents.start('main');
+  tmux.screens.set(session('main'), 'Model switch\n  Esc to cancel');
+  agents.checkDialogs();
+  time += 15 * 60000;
+  agents.checkDialogs();
+  assert.equal(alerts.length, 0);
+  fail = false;
+  time += 60000;
+  agents.checkDialogs();
+  agents.checkDialogs();
+  assert.equal(alerts.length, 1);
+  assert.match(alerts[0].text, /for 16 minutes/);
+});

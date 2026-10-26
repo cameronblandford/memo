@@ -47,7 +47,9 @@ const store = createStore(db, {
   // A postponed memo comes back at 9:00 in this zone.
   timeZone: process.env.MEMO_TZ || 'America/New_York',
 });
-const agents = createAgents({ db, config, root, owner, tmux: realTmux(), counts: store.counts });
+// A Claude Code dialog that waits for 15 minutes sends a memo from the agent to the owner (agents.checkDialogs).
+const alert = (memo) => store.send({ ...memo, to: owner });
+const agents = createAgents({ db, config, root, owner, tmux: realTmux(), counts: store.counts, alert });
 const images = createImages(join(dirname(dbPath), 'images'));
 // The day of the ticks starts at MEMO_DAY_START (an hour, default 3) in the time zone MEMO_TZ (default: that of this computer).
 const ticks = createTicks(db, { dayStart: Number(process.env.MEMO_DAY_START ?? 3), timeZone: process.env.MEMO_TZ || undefined });
@@ -92,4 +94,7 @@ serve({ fetch: app.fetch, hostname, port }, () => {
   agents.resume();
   linear.start();
   capture.start();
+  setInterval(() => {
+    try { agents.checkDialogs(); } catch (e) { console.error(`Dialog check: ${e.message}`); }
+  }, 60000).unref();
 });

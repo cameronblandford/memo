@@ -171,7 +171,7 @@ The day of the ticks starts at 03:00, so a tick of the evening is still there af
 
 Open `http://127.0.0.1:3280/agents`. Each agent has one row: its state, its status line, and its counts of open memos.
 
-The row of an agent with a session also shows the screen: the last 80 lines of its tmux session, read each 5 seconds. If the end of the screen is a Claude Code dialog (a choice that waits for an answer), the row says so. The Escape button closes such a dialog; the Enter button confirms its selected choice. These are the only keys that the page can send. To type into a session, use Remote Control in the Claude app, or `tmux attach` on its computer.
+The row of an agent with a session also shows the screen: the last 80 lines of its tmux session, read each 5 seconds. If the end of the screen is a Claude Code dialog (a choice that waits for an answer), the row says so. The Escape button closes such a dialog; the Enter button confirms its selected choice. These are the only keys that the page can send. If a dialog waits for 15 minutes, the server sends one memo from that agent to the owner, with the end of the screen; a new dialog sends a new memo. To type into a session, use Remote Control in the Claude app, or `tmux attach` on its computer.
 
 - "Start" starts the session of a long agent in the tmux session `memo-<name>`. To look at it: `tmux attach -t memo-main`. To leave it: Control-b, then d.
 - "Stop" asks the agent for a recap, then ends the session. If no recap arrives in 3 minutes, the session ends with no recap. "Stop now" ends the session immediately.
