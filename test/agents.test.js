@@ -432,3 +432,22 @@ test('the dialog alert skips a stopped agent and an offline remote agent', () =>
   agents.checkDialogs();
   assert.deepEqual(alerts.map((a) => a.from), ['mac']);
 });
+
+test('a dialog alert that fails goes again at the next check', () => {
+  let time = Date.parse('2026-01-01T10:00:00Z');
+  let fail = true;
+  const alerts = [];
+  const { agents, tmux } = make({ now: () => new Date(time), alert: (a) => { if (fail) throw new Error('no database'); alerts.push(a); } });
+  agents.start('main');
+  tmux.screens.set(session('main'), 'Model switch\n  Esc to cancel');
+  agents.checkDialogs();
+  time += 15 * 60000;
+  agents.checkDialogs();
+  assert.equal(alerts.length, 0);
+  fail = false;
+  time += 60000;
+  agents.checkDialogs();
+  agents.checkDialogs();
+  assert.equal(alerts.length, 1);
+  assert.match(alerts[0].text, /for 16 minutes/);
+});

@@ -220,7 +220,6 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', computer
       if (!dialogs.has(a.name)) dialogs.set(a.name, { since: t, sent: false });
       const d = dialogs.get(a.name);
       if (d.sent || t - d.since < dialogAlertMs) continue;
-      d.sent = true;
       const minutes = Math.floor((t - d.since) / 60000);
       const lines = s.text.split('\n').slice(-DIALOG_LINES).join('\n');
       try {
@@ -231,7 +230,9 @@ export function createAgents({ db, config, root, tmux, owner = 'owner', computer
             + 'If the dialog says that safeguards flagged the session, Escape does not hold: stop the agent and start it again.\n\n'
             + '```text\n' + lines.replaceAll('```', "'''") + '\n```',
         });
+        d.sent = true;
       } catch (e) {
+        // The memo did not go, so the next check tries again.
         console.error(`Dialog alert for ${a.name}: ${e.message}`);
       }
     }
